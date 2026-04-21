@@ -1,0 +1,22 @@
+{
+  "name": "idml-markdown-converter",
+  "version": "1.0.0",
+  "description": "Convert IDML files to Markdown and back, preserving formatting",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "archiver": "^6.0.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21"
+  }
+}

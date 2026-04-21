@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDML ↔ Markdown Converter</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 28px;
+      color: #2563eb;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 16px;
+    }
+
+    .main-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #f8f9fa;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e9ecef;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .panel-content {
+      padding: 20px;
+    }
+
+    /* Upload Section */
+    .upload-area {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .upload-area:hover {
+      border-color: #2563eb;
+      background: #f0f9ff;
+    }
+
+    .upload-area.dragover {
+      border-color: #2563eb;
+      background: #dbeafe;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      color: #94a3b8;
+      margin-bottom: 15px;
+    }
+
+    .upload-text {
+      color: #64748b;
+      margin-bottom: 10px;
+    }
+
+    .upload-hint {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    /* Editor Section */
+    .editor-toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #059669;
+    }
+
+    .btn-secondary {
+      background: #64748b;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #markdownEditor {
+      width: 100%;
+      min-height: 400px;
+      padding: 15px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+
+    #markdownEditor:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    /* Status */
+    .status {
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    .status.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .status.info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    /* Metadata */
+    .metadata {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    .metadata-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #e9ecef;
+    }
+
+    .metadata-item:last-child {
+      border-bottom: none;
+    }
+
+    /* Loading */
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 IDML ↔ Markdown Converter</h1>
+      <p class="subtitle">Convert InDesign IDML files to Markdown for text editing, then convert back with all formatting preserved</p>
+    </header>
+
+    <div class="main-panel">
+      <!-- Upload Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Step 1: Upload IDML File</span>
+        </div>
+        <div class="panel-content">
+          <div id="uploadArea" class="upload-area">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Drop your IDML file here or click to browse</div>
+            <div class="upload-hint">Supports .idml files (up to 50MB)</div>
+          </div>
+          <input type="file" id="fileInput" accept=".idml,application/zip">
+
+          <div id="uploadStatus" class="status hidden"></div>
+
+          <div id="metadata" class="metadata hidden">
+            <div class="metadata-item">
+              <span>Stories:</span>
+              <span id="storyCount">-</span>
+            </div>
+            <div class="metadata-item">
+              <span>Spreads:</span>
+              <span id="spreadCount">-</span>
+            </div>
+            <div class="metadata-item">
+              <span>Styles:</span>
+              <span id="styleCount">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Editor Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Step 2: Edit & Convert Back</span>
+        </div>
+        <div class="panel-content">
+          <div class="editor-toolbar">
+            <button id="downloadBtn" class="btn btn-success" disabled>
+              ⬇️ Download Converted IDML
+            </button>
+            <button id="copyBtn" class="btn btn-secondary" disabled>
+              📋 Copy Markdown
+            </button>
+          </div>
+
+          <textarea id="markdownEditor" placeholder="Your converted Markdown will appear here. Edit the text as needed, then click 'Download Converted IDML'..." readonly></textarea>
+
+          <div id="editorStatus" class="status hidden"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentSessionId = null;
+
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const metadata = document.getElementById('metadata');
+    const markdownEditor = document.getElementById('markdownEditor');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const editorStatus = document.getElementById('editorStatus');
+
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File selection
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // Handle file upload
+    async function handleFile(file) {
+      showStatus(uploadStatus, 'uploading', 'Uploading and converting...');
+      metadata.classList.add('hidden');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/idml-to-markdown', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          currentSessionId = result.sessionId;
+          markdownEditor.value = result.markdown;
+          markdownEditor.readOnly = false;
+          downloadBtn.disabled = false;
+          copyBtn.disabled = false;
+
+          // Show metadata
+          document.getElementById('storyCount').textContent = result.metadata.stories || 0;
+          document.getElementById('spreadCount').textContent = result.metadata.spreads || 0;
+          document.getElementById('styleCount').textContent = result.metadata.styles || 0;
+          metadata.classList.remove('hidden');
+
+          showStatus(uploadStatus, 'success', `✓ Converted successfully! ${result.metadata.stories || 0} stories extracted.`);
+        } else {
+          showStatus(uploadStatus, 'error', '✗ ' + (result.error || 'Conversion failed'));
+        }
+      } catch (error) {
+        showStatus(uploadStatus, 'error', '✗ Upload failed: ' + error.message);
+      }
+    }
+
+    // Download converted IDML
+    downloadBtn.addEventListener('click', async () => {
+      if (!currentSessionId) return;
+
+      showStatus(editorStatus, 'uploading', 'Converting back to IDML...');
+
+      try {
+        const response = await fetch('/api/markdown-to-idml', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: currentSessionId,
+            markdown: markdownEditor.value
+          })
+        });
+
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `converted_${Date.now()}.idml`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          showStatus(editorStatus, 'success', '✓ IDML file downloaded! Open it in InDesign to see your changes.');
+        } else {
+          const error = await response.json();
+          showStatus(editorStatus, 'error', '✗ ' + (error.error || 'Conversion failed'));
+        }
+      } catch (error) {
+        showStatus(editorStatus, 'error', '✗ Download failed: ' + error.message);
+      }
+    });
+
+    // Copy markdown to clipboard
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(markdownEditor.value);
+        copyBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 Copy Markdown';
+        }, 2000);
+      } catch (error) {
+        showStatus(editorStatus, 'error', '✗ Failed to copy');
+      }
+    });
+
+    // Show status message
+    function showStatus(element, type, message) {
+      element.className = 'status ' + type;
+      element.textContent = message;
+      element.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
