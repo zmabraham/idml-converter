@@ -466,21 +466,35 @@
         let markdown = '';
         let storyIndex = 1;
 
+        console.log('Building markdown from', data.stories.size, 'stories');
+
         for (const [storySelf, storyData] of data.stories) {
           const story = storyData.xml;
           const storyName = story.$?.Self || `Story ${storyIndex}`;
 
+          console.log('Processing story:', storyName, 'Keys:', Object.keys(story).filter(k => k !== '$'));
+
           const paragraphs = this.extractParagraphs(story);
+
+          console.log('Extracted paragraphs:', paragraphs.length, 'from', storyName);
 
           if (paragraphs.length > 0) {
             markdown += `# ${storyName}\n\n`;
             for (const para of paragraphs) {
               markdown += para + '\n\n';
+              // Debug first paragraph
+              if (paragraphs.indexOf(para) === 0) {
+                console.log('First paragraph markdown (first 200 chars):', JSON.stringify(para.substring(0, 200)));
+                console.log('First paragraph markdown length:', para.length);
+              }
             }
           }
 
           storyIndex++;
         }
+
+        console.log('Final markdown length:', markdown.length);
+        console.log('Final markdown (first 500 chars):', markdown.substring(0, 500));
 
         return markdown.trim();
       }
