@@ -472,21 +472,29 @@
       extractParagraphs(story) {
         const paragraphs = [];
 
-        // Helper to extract text from Content element
+        // Helper to extract text from Content element - preserves spaces
         const extractContent = (content) => {
           if (!content) return '';
           if (typeof content === 'string') return content;
           if (Array.isArray(content)) {
+            // Join array elements preserving content exactly
             return content.map(extractContent).join('');
           }
           if (typeof content === 'object') {
-            // Check for _ property (text content)
+            // Check for text content properties
             if (content._ !== undefined) return content._;
-            // Recursively check all properties
+            if (content['#text'] !== undefined) return content['#text'];
+            if (content.textContent !== undefined) return content.textContent;
+            if (content.text !== undefined) return content.text;
+
+            // Recursively check all properties, maintaining order
             let text = '';
             for (const key of Object.keys(content)) {
-              if (key !== '$') {
-                text += extractContent(content[key]);
+              if (key !== '$' && key !== 'Self' && key !== 'AppliedCharacterStyle') {
+                const value = content[key];
+                if (value !== null && value !== undefined) {
+                  text += extractContent(value);
+                }
               }
             }
             return text;
@@ -515,7 +523,9 @@
               : [range.CharacterStyleRange];
 
             for (const charRange of charRanges) {
-              text += extractContent(charRange.Content);
+              // Extract content directly - don't add extra spaces
+              const contentText = extractContent(charRange.Content);
+              text += contentText;
             }
           }
 
@@ -525,7 +535,11 @@
           }
 
           if (text.trim()) {
-            paragraphs.push(text.trim());
+            // Clean up but preserve single spaces between words
+            const cleanText = text
+              .replace(/\s+/g, ' ')  // Multiple spaces to single space
+              .trim();
+            paragraphs.push(cleanText);
           }
         }
 
