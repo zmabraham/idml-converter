@@ -583,6 +583,14 @@
               // Debug: log what we're extracting
               console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
 
+              // Debug: Show hex of characters around periods to identify any special characters
+              if (contentText.includes('.') && contentText.length > 20) {
+                const periodIndex = contentText.indexOf('.');
+                const context = contentText.substring(Math.max(0, periodIndex - 5), Math.min(contentText.length, periodIndex + 10));
+                console.log('  Context around first period:', JSON.stringify(context));
+                console.log('  Hex chars:', Array.from(context).map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join(' '));
+              }
+
               // Detect common styles and add markdown - preserve EXACT original spacing
               const styleName = appliedStyle.toLowerCase();
 
@@ -631,6 +639,11 @@
               .replace(/\u2028/g, '\n')  // Line separator to newline
               .replace(/\u2029/g, '\n\n') // Paragraph separator to double newline
               .trim();                   // Only trim outer edges
+
+            // Smart fix: Add missing spaces after sentence-ending punctuation
+            // This is a common IDML issue where spaces are lost during export
+            // Pattern: lowercase letter + punctuation + uppercase letter (start of new sentence)
+            cleanText = cleanText.replace(/([a-z])([.!?])([A-Z])/g, '$1$2 $3');
 
             paragraphs.push(cleanText);
           }
