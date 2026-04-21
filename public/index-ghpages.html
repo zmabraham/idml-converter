@@ -562,36 +562,27 @@
               // Debug: log what we're extracting
               console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
 
-              // Detect common styles and add markdown - preserve surrounding spaces
+              // Detect common styles and add markdown - preserve EXACT original spacing
               const styleName = appliedStyle.toLowerCase();
-              let prefix = '';
-              let suffix = '';
 
               if (styleName.includes('italic') || styleName.includes('emphasis')) {
-                // Check if content has leading/trailing spaces and preserve them
-                const leadingSpace = /^\s+/.test(contentText);
-                const trailingSpace = /\s+$/.test(contentText);
-                const trimmedText = contentText.trim();
+                // Extract leading and trailing whitespace from original content
+                const leadingMatch = contentText.match(/^(\s*)/);
+                const trailingMatch = contentText.match(/(\s*)$/);
+                const leading = leadingMatch ? leadingMatch[1] : '';
+                const trailing = trailingMatch ? trailingMatch[1] : '';
+                const innerText = contentText.trim();
 
-                if (leadingSpace) prefix = ' *';
-                else prefix = '*';
-
-                if (trailingSpace) suffix = '* ';
-                else suffix = '*';
-
-                markdownText += prefix + trimmedText + suffix;
+                // Add markdown markers OUTSIDE the whitespace
+                markdownText += leading + '*' + innerText + '*' + trailing;
               } else if (styleName.includes('bold') || styleName.includes('strong')) {
-                const leadingSpace = /^\s+/.test(contentText);
-                const trailingSpace = /\s+$/.test(contentText);
-                const trimmedText = contentText.trim();
+                const leadingMatch = contentText.match(/^(\s*)/);
+                const trailingMatch = contentText.match(/(\s*)$/);
+                const leading = leadingMatch ? leadingMatch[1] : '';
+                const trailing = trailingMatch ? trailingMatch[1] : '';
+                const innerText = contentText.trim();
 
-                if (leadingSpace) prefix = ' **';
-                else prefix = '**';
-
-                if (trailingSpace) suffix = '** ';
-                else suffix = '**';
-
-                markdownText += prefix + trimmedText + suffix;
+                markdownText += leading + '**' + innerText + '**' + trailing;
               } else {
                 // No special styling - keep original text exactly
                 markdownText += contentText;
@@ -612,11 +603,13 @@
             // Use markdown version if available
             const finalText = markdownText || text;
 
-            // Minimal cleanup - only normalize line endings
+            // Very minimal cleanup - just normalize line endings, preserve ALL internal spacing
             let cleanText = finalText
-              .replace(/\r\n/g, '\n')    // Normalize line endings
-              .replace(/\r/g, '\n')      // Normalize line endings
-              .trim();                   // Only trim outer whitespace
+              .replace(/\r\n/g, '\n')    // Normalize Windows line endings
+              .replace(/\r/g, '\n')      // Normalize old Mac line endings
+              .replace(/\u2028/g, '\n')  // Line separator to newline
+              .replace(/\u2029/g, '\n\n') // Paragraph separator to double newline
+              .trim();                   // Only trim outer edges
 
             paragraphs.push(cleanText);
           }
