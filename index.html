@@ -362,10 +362,9 @@
         for (const file of storyFiles) {
           const content = await file.async('string');
           const xml = this.parseXML(content);
-          const storySelf = xml['Self'] || xml.id;
-          if (storySelf) {
-            this.stories.set(storySelf, { xml, originalContent: content });
-          }
+          // Get Self from attributes
+          const storySelf = xml.$?.Self || xml.id || file.name;
+          this.stories.set(storySelf, { xml, originalContent: content });
         }
 
         // Count spreads and styles
@@ -473,89 +472,66 @@
       extractParagraphs(story) {
         const paragraphs = [];
 
-        const findAndExtract = (obj, depth = 0) => {
-          if (!obj || typeof obj !== 'object' || depth > 20) return;
-
-          // Look for ParagraphStyleRange
-          if (obj.ParagraphStyleRange) {
-            const ranges = Array.isArray(obj.ParagraphStyleRange) ? obj.ParagraphStyleRange : [obj.ParagraphStyleRange];
-
-            for (const range of ranges) {
-              let text = '';
-
-              if (range.CharacterStyleRange) {
-                const charRanges = Array.isArray(range.CharacterStyleRange) ? range.CharacterStyleRange : [range.CharacterStyleRange];
-
-                for (const charRange of charRanges) {
-                  if (charRange.Content) {
-                    const contents = Array.isArray(charRange.Content) ? charRange.Content : [charRange.Content];
-                    for (const content of contents) {
-                      if (typeof content === 'string') {
-                        text += content;
-                      } else if (typeof content === 'object' && content !== null) {
-                        // Handle nested content objects
-                        const nestedText = this.extractTextFromObj(content);
-                        text += nestedText;
-                      }
-                    }
-                  }
-                }
-              } else if (range.Content) {
-                // Direct content in ParagraphStyleRange
-                const contents = Array.isArray(range.Content) ? range.Content : [range.Content];
-                for (const content of contents) {
-                  if (typeof content === 'string') {
-                    text += content;
-                  } else if (typeof content === 'object' && content !== null) {
-                    text += this.extractTextFromObj(content);
-                  }
-                }
-              }
-
-              if (text.trim()) {
-                paragraphs.push(text.trim());
+        // Helper to extract text from Content element
+        const extractContent = (content) => {
+          if (!content) return '';
+          if (typeof content === 'string') return content;
+          if (Array.isArray(content)) {
+            return content.map(extractContent).join('');
+          }
+          if (typeof content === 'object') {
+            // Check for _ property (text content)
+            if (content._ !== undefined) return content._;
+            // Recursively check all properties
+            let text = '';
+            for (const key of Object.keys(content)) {
+              if (key !== '$') {
+                text += extractContent(content[key]);
               }
             }
+            return text;
           }
-
-          // Recursively search
-          for (const key in obj) {
-            if (Array.isArray(obj[key])) {
-              for (const item of obj[key]) {
-                if (typeof item === 'object' && item !== null) {
-                  findAndExtract(item, depth + 1);
-                }
-              }
-            } else if (typeof obj[key] === 'object' && obj[key] !== null && key !== '$') {
-              findAndExtract(obj[key], depth + 1);
-            }
-          }
+          return '';
         };
 
-        findAndExtract(story);
+        // Handle different story structures
+        const storyContent = story.Story || story['idPkg:Story'] || story;
+
+        // Get ParagraphStyleRange
+        let paraRanges = [];
+        if (storyContent.ParagraphStyleRange) {
+          paraRanges = Array.isArray(storyContent.ParagraphStyleRange)
+            ? storyContent.ParagraphStyleRange
+            : [storyContent.ParagraphStyleRange];
+        }
+
+        for (const range of paraRanges) {
+          let text = '';
+
+          // Look for CharacterStyleRange
+          if (range.CharacterStyleRange) {
+            const charRanges = Array.isArray(range.CharacterStyleRange)
+              ? range.CharacterStyleRange
+              : [range.CharacterStyleRange];
+
+            for (const charRange of charRanges) {
+              text += extractContent(charRange.Content);
+            }
+          }
+
+          // Look for direct Content
+          if (!text && range.Content) {
+            text = extractContent(range.Content);
+          }
+
+          if (text.trim()) {
+            paragraphs.push(text.trim());
+          }
+        }
+
         return paragraphs;
       }
 
-      extractTextFromObj(obj) {
-        let text = '';
-        for (const key in obj) {
-          if (key === '$') continue;
-          if (typeof obj[key] === 'string') {
-            text += obj[key];
-          } else if (Array.isArray(obj[key])) {
-            for (const item of obj[key]) {
-              if (typeof item === 'string') {
-                text += item;
-              } else if (typeof item === 'object' && item !== null) {
-                text += this.extractTextFromObj(item);
-              }
-            }
-          } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-            text += this.extractTextFromObj(obj[key]);
-          }
-        }
-        return text;
-      }
     }
 
     class MarkdownToIDMLConverter {
