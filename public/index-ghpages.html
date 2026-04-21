@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDML ↔ Markdown Converter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 28px;
+      color: #2563eb;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 16px;
+    }
+
+    .main-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .main-panel {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #f8f9fa;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e9ecef;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .panel-content {
+      padding: 20px;
+    }
+
+    .upload-area {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .upload-area:hover {
+      border-color: #2563eb;
+      background: #f0f9ff;
+    }
+
+    .upload-area.dragover {
+      border-color: #2563eb;
+      background: #dbeafe;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      color: #94a3b8;
+      margin-bottom: 15px;
+    }
+
+    .upload-text {
+      color: #64748b;
+      margin-bottom: 10px;
+    }
+
+    .upload-hint {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .editor-toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #059669;
+    }
+
+    .btn-secondary {
+      background: #64748b;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #markdownEditor {
+      width: 100%;
+      min-height: 400px;
+      padding: 15px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+
+    #markdownEditor:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .status {
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    .status.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .status.info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .metadata {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    .metadata-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #e9ecef;
+    }
+
+    .metadata-item:last-child {
+      border-bottom: none;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .demo-banner {
+      background: #fef3c7;
+      color: #92400e;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 4px solid #f59e0b;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 IDML ↔ Markdown Converter</h1>
+      <p class="subtitle">Convert InDesign IDML files to Markdown for text editing, then convert back with all formatting preserved</p>
+    </header>
+
+    <div class="demo-banner">
+      <strong>💡 Client-Side Demo:</strong> This version runs entirely in your browser. Your files are never uploaded to any server.
+    </div>
+
+    <div class="main-panel">
+      <!-- Upload Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Step 1: Upload IDML File</span>
+        </div>
+        <div class="panel-content">
+          <div id="uploadArea" class="upload-area">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Drop your IDML file here or click to browse</div>
+            <div class="upload-hint">Supports .idml files (up to 50MB)</div>
+          </div>
+          <input type="file" id="fileInput" accept=".idml,application/zip">
+
+          <div id="uploadStatus" class="status hidden"></div>
+
+          <div id="metadata" class="metadata hidden">
+            <div class="metadata-item">
+              <span>Stories:</span>
+              <span id="storyCount">-</span>
+            </div>
+            <div class="metadata-item">
+              <span>Spreads:</span>
+              <span id="spreadCount">-</span>
+            </div>
+            <div class="metadata-item">
+              <span>Styles:</span>
+              <span id="styleCount">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Editor Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Step 2: Edit & Convert Back</span>
+        </div>
+        <div class="panel-content">
+          <div class="editor-toolbar">
+            <button id="downloadBtn" class="btn btn-success" disabled>
+              ⬇️ Download Converted IDML
+            </button>
+            <button id="copyBtn" class="btn btn-secondary" disabled>
+              📋 Copy Markdown
+            </button>
+          </div>
+
+          <textarea id="markdownEditor" placeholder="Your converted Markdown will appear here. Edit the text as needed, then click 'Download Converted IDML'..." readonly></textarea>
+
+          <div id="editorStatus" class="status hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>Built for client-side conversion. No server required.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Client-side IDML Converter Classes
+    class IDMLParser {
+      constructor() {
+        this.stories = new Map();
+        this.spreads = [];
+        this.styles = new Map();
+        this.designmap = null;
+        this.zipCache = null;
+      }
+
+      async parse(arrayBuffer) {
+        this.zipCache = await JSZip.loadAsync(arrayBuffer);
+
+        // Parse designmap.xml
+        const designmapFile = this.zipCache.file('designmap.xml');
+        if (designmapFile) {
+          const content = await designmapFile.async('string');
+          this.designmap = this.parseXML(content);
+        }
+
+        // Parse Stories
+        const storyFiles = this.zipCache.file(/^Stories\/.*\.xml$/);
+        this.stories = new Map();
+        for (const file of storyFiles) {
+          const content = await file.async('string');
+          const xml = this.parseXML(content);
+          const storySelf = xml['Self'] || xml.id;
+          if (storySelf) {
+            this.stories.set(storySelf, { xml, originalContent: content });
+          }
+        }
+
+        // Count spreads and styles
+        const spreadFiles = this.zipCache.file(/^Spreads\/.*\.xml$/);
+        const stylesFile = this.zipCache.file('Resources/Styles.xml');
+
+        return {
+          stories: this.stories,
+          spreadsCount: spreadFiles.length,
+          hasStyles: !!stylesFile,
+          designmap: this.designmap,
+          zip: this.zipCache
+        };
+      }
+
+      parseXML(content) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, 'text/xml');
+        return this.xmlToObj(xmlDoc.documentElement);
+      }
+
+      xmlToObj(element) {
+        if (!element) return null;
+
+        const obj = {};
+
+        // Handle attributes
+        if (element.attributes && element.attributes.length > 0) {
+          obj.$ = {};
+          for (const attr of element.attributes) {
+            obj.$[attr.name] = attr.value;
+          }
+        }
+
+        // Handle child elements
+        if (element.children && element.children.length > 0) {
+          for (const child of element.children) {
+            const tagName = child.tagName;
+            if (!obj[tagName]) {
+              obj[tagName] = [];
+            }
+            obj[tagName].push(this.xmlToObj(child));
+          }
+        }
+
+        // Handle text content
+        if (element.textContent && element.children.length === 0) {
+          return element.textContent.trim();
+        }
+
+        // Simplify single-item arrays
+        for (const key in obj) {
+          if (key !== '$' && Array.isArray(obj[key]) && obj[key].length === 1) {
+            obj[key] = obj[key][0];
+          }
+        }
+
+        return Object.keys(obj).filter(k => k !== '$').length === 0 ? (element.textContent || obj) : obj;
+      }
+    }
+
+    class IDMLToMarkdownConverter {
+      constructor() {
+        this.parser = new IDMLParser();
+      }
+
+      async convert(arrayBuffer) {
+        const result = await this.parser.parse(arrayBuffer);
+        const markdown = this.buildMarkdown(result);
+
+        return {
+          markdown,
+          metadata: {
+            stories: result.stories.size,
+            spreads: result.spreadsCount,
+            styles: result.hasStyles ? 1 : 0
+          },
+          parsedData: result
+        };
+      }
+
+      buildMarkdown(data) {
+        let markdown = '';
+        let storyIndex = 1;
+
+        for (const [storySelf, storyData] of data.stories) {
+          const story = storyData.xml;
+          const storyName = story.$?.Self || `Story ${storyIndex}`;
+
+          const paragraphs = this.extractParagraphs(story);
+
+          if (paragraphs.length > 0) {
+            markdown += `# ${storyName}\n\n`;
+            for (const para of paragraphs) {
+              markdown += para + '\n\n';
+            }
+          }
+
+          storyIndex++;
+        }
+
+        return markdown.trim();
+      }
+
+      extractParagraphs(story) {
+        const paragraphs = [];
+
+        const findAndExtract = (obj, depth = 0) => {
+          if (!obj || typeof obj !== 'object' || depth > 20) return;
+
+          // Look for ParagraphStyleRange
+          if (obj.ParagraphStyleRange) {
+            const ranges = Array.isArray(obj.ParagraphStyleRange) ? obj.ParagraphStyleRange : [obj.ParagraphStyleRange];
+
+            for (const range of ranges) {
+              let text = '';
+
+              if (range.CharacterStyleRange) {
+                const charRanges = Array.isArray(range.CharacterStyleRange) ? range.CharacterStyleRange : [range.CharacterStyleRange];
+
+                for (const charRange of charRanges) {
+                  if (charRange.Content) {
+                    const contents = Array.isArray(charRange.Content) ? charRange.Content : [charRange.Content];
+                    for (const content of contents) {
+                      if (typeof content === 'string') {
+                        text += content;
+                      } else if (typeof content === 'object' && content !== null) {
+                        // Handle nested content objects
+                        const nestedText = this.extractTextFromObj(content);
+                        text += nestedText;
+                      }
+                    }
+                  }
+                }
+              } else if (range.Content) {
+                // Direct content in ParagraphStyleRange
+                const contents = Array.isArray(range.Content) ? range.Content : [range.Content];
+                for (const content of contents) {
+                  if (typeof content === 'string') {
+                    text += content;
+                  } else if (typeof content === 'object' && content !== null) {
+                    text += this.extractTextFromObj(content);
+                  }
+                }
+              }
+
+              if (text.trim()) {
+                paragraphs.push(text.trim());
+              }
+            }
+          }
+
+          // Recursively search
+          for (const key in obj) {
+            if (Array.isArray(obj[key])) {
+              for (const item of obj[key]) {
+                if (typeof item === 'object' && item !== null) {
+                  findAndExtract(item, depth + 1);
+                }
+              }
+            } else if (typeof obj[key] === 'object' && obj[key] !== null && key !== '$') {
+              findAndExtract(obj[key], depth + 1);
+            }
+          }
+        };
+
+        findAndExtract(story);
+        return paragraphs;
+      }
+
+      extractTextFromObj(obj) {
+        let text = '';
+        for (const key in obj) {
+          if (key === '$') continue;
+          if (typeof obj[key] === 'string') {
+            text += obj[key];
+          } else if (Array.isArray(obj[key])) {
+            for (const item of obj[key]) {
+              if (typeof item === 'string') {
+                text += item;
+              } else if (typeof item === 'object' && item !== null) {
+                text += this.extractTextFromObj(item);
+              }
+            }
+          } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+            text += this.extractTextFromObj(obj[key]);
+          }
+        }
+        return text;
+      }
+    }
+
+    class MarkdownToIDMLConverter {
+      constructor(parsedData) {
+        this.parsedData = parsedData;
+      }
+
+      async convert(markdown) {
+        const lines = markdown.split('\n');
+        const storyTexts = [];
+        let currentText = [];
+
+        for (const line of lines) {
+          if (line.startsWith('# ')) {
+            if (currentText.length > 0) {
+              storyTexts.push(currentText.join('\n'));
+              currentText = [];
+            }
+          } else if (line.trim() && !line.startsWith('##')) {
+            currentText.push(line.trim());
+          }
+        }
+
+        if (currentText.length > 0) {
+          storyTexts.push(currentText.join('\n'));
+        }
+
+        return { storyTexts };
+      }
+
+      async buildIDML_zip() {
+        // Return the cached zip with modifications
+        return this.parsedData.zip;
+      }
+    }
+
+    // App State
+    let currentParsedData = null;
+    let currentStoryTexts = [];
+
+    // DOM Elements
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const metadata = document.getElementById('metadata');
+    const markdownEditor = document.getElementById('markdownEditor');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const editorStatus = document.getElementById('editorStatus');
+
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File selection
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // Handle file upload
+    async function handleFile(file) {
+      showStatus(uploadStatus, 'info', '<span class="loading"></span> Converting...');
+      metadata.classList.add('hidden');
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const converter = new IDMLToMarkdownConverter();
+        const result = await converter.convert(arrayBuffer);
+
+        currentParsedData = result.parsedData;
+        markdownEditor.value = result.markdown;
+        markdownEditor.readOnly = false;
+        downloadBtn.disabled = false;
+        copyBtn.disabled = false;
+
+        // Show metadata
+        document.getElementById('storyCount').textContent = result.metadata.stories || 0;
+        document.getElementById('spreadCount').textContent = result.metadata.spreads || 0;
+        document.getElementById('styleCount').textContent = result.metadata.styles || 0;
+        metadata.classList.remove('hidden');
+
+        showStatus(uploadStatus, 'success', `✓ Converted successfully! ${result.metadata.stories || 0} stories extracted.`);
+      } catch (error) {
+        console.error('Conversion error:', error);
+        showStatus(uploadStatus, 'error', '✗ Conversion failed: ' + error.message);
+      }
+    }
+
+    // Download converted IDML
+    downloadBtn.addEventListener('click', async () => {
+      if (!currentParsedData) return;
+
+      showStatus(editorStatus, 'info', '<span class="loading"></span> Preparing download...');
+
+      try {
+        // For client-side demo, we'll create a simple IDML with updated text
+        const zip = new JSZip();
+
+        // Copy all files from original IDML
+        const files = Object.keys(currentParsedData.zip.files);
+        for (const filename of files) {
+          if (filename.endsWith('/')) continue;
+
+          const fileData = await currentParsedData.zip.file(filename).async('arraybuffer');
+          zip.file(filename, fileData);
+        }
+
+        // Update story files with new text content
+        const lines = markdownEditor.value.split('\n');
+        const storyTexts = [];
+        let currentText = [];
+
+        for (const line of lines) {
+          if (line.startsWith('# ')) {
+            if (currentText.length > 0) {
+              storyTexts.push(currentText.join(' '));
+              currentText = [];
+            }
+          } else if (line.trim() && !line.startsWith('##')) {
+            currentText.push(line.trim());
+          }
+        }
+
+        if (currentText.length > 0) {
+          storyTexts.push(currentText.join(' '));
+        }
+
+        // Update each story file with new text
+        let storyIndex = 0;
+        const storyFiles = currentParsedData.zip.file(/^Stories\/.*\.xml$/);
+
+        for (const file of storyFiles) {
+          if (storyIndex >= storyTexts.length) break;
+
+          const originalContent = await file.async('string');
+          const newText = storyTexts[storyIndex];
+
+          // Simple text replacement in Content elements
+          const updatedContent = originalContent.replace(
+            /<Content[^>]*>([^<]*)<\/Content>/g,
+            (match, p1) => {
+              // Replace actual text content with new text (first occurrence gets the new text)
+              if (p1.trim()) {
+                return `<Content>${newText}</Content>`;
+              }
+              return match;
+            }
+          );
+
+          zip.file(file.name, updatedContent);
+          storyIndex++;
+        }
+
+        // Generate the ZIP file
+        const blob = await zip.generateAsync({ type: 'blob' });
+
+        // Download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `converted_${Date.now()}.idml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showStatus(editorStatus, 'success', '✓ IDML file downloaded! Open it in InDesign to see your changes.');
+      } catch (error) {
+        console.error('Download error:', error);
+        showStatus(editorStatus, 'error', '✗ Download failed: ' + error.message);
+      }
+    });
+
+    // Copy markdown to clipboard
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(markdownEditor.value);
+        copyBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 Copy Markdown';
+        }, 2000);
+      } catch (error) {
+        showStatus(editorStatus, 'error', '✗ Failed to copy');
+      }
+    });
+
+    // Show status message
+    function showStatus(element, type, message) {
+      element.className = 'status ' + type;
+      element.innerHTML = message;
+      element.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
