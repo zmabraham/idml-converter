@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IDML ↔ Markdown Converter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -49,6 +50,12 @@
       gap: 20px;
     }
 
+    @media (max-width: 900px) {
+      .main-panel {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .panel {
       background: white;
       border-radius: 8px;
@@ -74,7 +81,6 @@
       padding: 20px;
     }
 
-    /* Upload Section */
     .upload-area {
       border: 2px dashed #cbd5e1;
       border-radius: 8px;
@@ -114,7 +120,6 @@
       display: none;
     }
 
-    /* Editor Section */
     .editor-toolbar {
       display: flex;
       gap: 10px;
@@ -182,7 +187,6 @@
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
 
-    /* Status */
     .status {
       padding: 10px 15px;
       border-radius: 6px;
@@ -205,7 +209,6 @@
       color: #1e40af;
     }
 
-    /* Metadata */
     .metadata {
       background: #f8f9fa;
       padding: 15px;
@@ -225,7 +228,6 @@
       border-bottom: none;
     }
 
-    /* Loading */
     .loading {
       display: inline-block;
       width: 20px;
@@ -244,6 +246,22 @@
     .hidden {
       display: none;
     }
+
+    .demo-banner {
+      background: #fef3c7;
+      color: #92400e;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 4px solid #f59e0b;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: #666;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -252,6 +270,10 @@
       <h1>📄 IDML ↔ Markdown Converter</h1>
       <p class="subtitle">Convert InDesign IDML files to Markdown for text editing, then convert back with all formatting preserved</p>
     </header>
+
+    <div class="demo-banner">
+      <strong>💡 Client-Side Demo:</strong> This version runs entirely in your browser. Your files are never uploaded to any server.
+    </div>
 
     <div class="main-panel">
       <!-- Upload Panel -->
@@ -307,11 +329,548 @@
         </div>
       </div>
     </div>
+
+    <footer>
+      <p>Built for client-side conversion. No server required.</p>
+    </footer>
   </div>
 
   <script>
-    let currentSessionId = null;
+    // Client-side IDML Converter Classes
+    class IDMLParser {
+      constructor() {
+        this.stories = new Map();
+        this.spreads = [];
+        this.styles = new Map();
+        this.designmap = null;
+        this.zipCache = null;
+      }
 
+      async parse(arrayBuffer) {
+        this.zipCache = await JSZip.loadAsync(arrayBuffer);
+
+        // Parse designmap.xml
+        const designmapFile = this.zipCache.file('designmap.xml');
+        if (designmapFile) {
+          const content = await designmapFile.async('string');
+          this.designmap = this.parseXML(content);
+        }
+
+        // Parse Stories
+        const storyFiles = this.zipCache.file(/^Stories\/.*\.xml$/);
+        this.stories = new Map();
+        for (const file of storyFiles) {
+          const content = await file.async('string');
+          const xml = this.parseXML(content);
+          // Get Self from attributes
+          const storySelf = xml.$?.Self || xml.id || file.name;
+          this.stories.set(storySelf, { xml, originalContent: content });
+        }
+
+        // Count spreads and styles
+        const spreadFiles = this.zipCache.file(/^Spreads\/.*\.xml$/);
+        const stylesFile = this.zipCache.file('Resources/Styles.xml');
+
+        return {
+          stories: this.stories,
+          spreadsCount: spreadFiles.length,
+          hasStyles: !!stylesFile,
+          designmap: this.designmap,
+          zip: this.zipCache
+        };
+      }
+
+      parseXML(content) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(content, 'text/xml');
+
+        // Debug: test how parser handles whitespace vs raw XML
+        const testEl = xmlDoc.getElementsByTagName('Content')[0];
+        if (testEl) {
+          console.log('DOMParser test - Content textContent length:', testEl.textContent.length);
+          console.log('DOMParser test - Content textContent (JSON):', JSON.stringify(testEl.textContent));
+          console.log('DOMParser test - Content outerHTML:', testEl.outerHTML);
+        }
+
+        // Also test raw XML for comparison
+        const contentMatch = content.match(/<Content[^>]*>([^<]+)<\/Content>/);
+        if (contentMatch) {
+          console.log('Raw XML Content:', JSON.stringify(contentMatch[1]));
+          console.log('Raw XML length:', contentMatch[1].length);
+        }
+
+        return this.xmlToObj(xmlDoc.documentElement);
+      }
+
+      xmlToObj(element) {
+        if (!element) return null;
+
+        const obj = {};
+
+        // Handle attributes
+        if (element.attributes && element.attributes.length > 0) {
+          obj.$ = {};
+          for (const attr of element.attributes) {
+            obj.$[attr.name] = attr.value;
+          }
+        }
+
+        // Handle child elements
+        if (element.children && element.children.length > 0) {
+          for (const child of element.children) {
+            const tagName = child.tagName;
+            if (!obj[tagName]) {
+              obj[tagName] = [];
+            }
+            obj[tagName].push(this.xmlToObj(child));
+          }
+        }
+
+        // Handle text content - DON'T TRIM! Preserve all spaces
+        if (element.textContent && element.children.length === 0) {
+          return element.textContent;  // Don't trim - preserve all whitespace!
+        }
+
+        // Simplify single-item arrays
+        for (const key in obj) {
+          if (key !== '$' && Array.isArray(obj[key]) && obj[key].length === 1) {
+            obj[key] = obj[key][0];
+          }
+        }
+
+        return Object.keys(obj).filter(k => k !== '$').length === 0 ? (element.textContent || obj) : obj;
+      }
+    }
+
+    class IDMLToMarkdownConverter {
+      constructor() {
+        this.parser = new IDMLParser();
+        this.textMappings = new Map(); // Store text position mappings for round-trip
+      }
+
+      async convert(arrayBuffer) {
+        const result = await this.parser.parse(arrayBuffer);
+        const markdown = this.buildMarkdown(result);
+
+        return {
+          markdown,
+          metadata: {
+            stories: result.stories.size,
+            spreads: result.spreadsCount,
+            styles: result.hasStyles ? 1 : 0
+          },
+          parsedData: result,
+          textMappings: this.textMappings // Store for round-trip
+        };
+      }
+
+      buildMarkdown(data) {
+        let markdown = '';
+        let storyIndex = 1;
+        this.textMappings = new Map(); // Reset mappings
+
+        console.log('Building markdown from', data.stories.size, 'stories');
+
+        for (const [storySelf, storyData] of data.stories) {
+          const story = storyData.xml;
+          const storyName = story.$?.Self || `Story ${storyIndex}`;
+
+          console.log('Processing story:', storyName, 'Keys:', Object.keys(story).filter(k => k !== '$'));
+
+          const paragraphs = this.extractParagraphs(story, storySelf); // Pass storySelf for mapping
+
+          console.log('Extracted paragraphs:', paragraphs.length, 'from', storyName);
+
+          if (paragraphs.length > 0) {
+            markdown += `# ${storyName}\n\n`;
+            for (const para of paragraphs) {
+              markdown += para.text + '\n\n'; // Use .text to get just the markdown text
+            }
+          }
+
+          storyIndex++;
+        }
+
+        console.log('Final markdown length:', markdown.length);
+
+        return markdown.trim();
+      }
+
+      extractParagraphs(story, storySelf) {
+        const paragraphs = [];
+        const storyMappings = []; // Store mappings for this story
+
+        // Helper to extract text from Content element - preserves ALL spaces
+        const extractContent = (content) => {
+          if (content === null || content === undefined) return '';
+          if (typeof content === 'string') return content;  // Return string exactly, including spaces
+          if (Array.isArray(content)) {
+            // Join array elements preserving content exactly
+            return content.map(extractContent).join('');
+          }
+          if (typeof content === 'object') {
+            // Check for text content properties - preserve exact content
+            if (content._ !== undefined) return content._;
+            if (content['#text'] !== undefined) return content['#text'];
+            if (content.textContent !== undefined) return content.textContent;
+            if (content.text !== undefined) return content.text;
+
+            // Recursively check all properties, maintaining order
+            let text = '';
+            for (const key of Object.keys(content)) {
+              if (key !== '$' && key !== 'Self' && key !== 'AppliedCharacterStyle' && key !== 'AppliedParagraphStyle') {
+                const value = content[key];
+                text += extractContent(value);
+              }
+            }
+            return text;
+          }
+          return '';
+        };
+
+        // Handle different story structures
+        const storyContent = story.Story || story['idPkg:Story'] || story;
+
+        // Get ParagraphStyleRange
+        let paraRanges = [];
+        if (storyContent.ParagraphStyleRange) {
+          paraRanges = Array.isArray(storyContent.ParagraphStyleRange)
+            ? storyContent.ParagraphStyleRange
+            : [storyContent.ParagraphStyleRange];
+        }
+
+        for (const range of paraRanges) {
+          let text = '';
+          let markdownText = ''; // Will include markdown formatting
+
+          // Look for CharacterStyleRange - preserve exact content including ALL spaces
+          if (range.CharacterStyleRange) {
+            const charRanges = Array.isArray(range.CharacterStyleRange)
+              ? range.CharacterStyleRange
+              : [range.CharacterStyleRange];
+
+            for (const charRange of charRanges) {
+              // Debug: log the full structure of the first few charRanges
+              if (paragraphs.length === 0 && text.length === 0) {
+                console.log('Full charRange structure:', JSON.stringify(charRange, (key, value) => {
+                  if (key === 'Content' && typeof value === 'string' && value.length > 20) {
+                    return value.substring(0, 20) + '...';
+                  }
+                  return value;
+                }, 2));
+              }
+
+              // Get the applied character style
+              const appliedStyle = charRange.$?.AppliedCharacterStyle ||
+                                  charRange.AppliedCharacterStyle ||
+                                  '';
+
+              // Extract content - try multiple possible properties
+              let contentText = '';
+              if (charRange.Content !== undefined) {
+                contentText = extractContent(charRange.Content);
+              } else {
+                // Try other possible text properties
+                contentText = extractContent(charRange.textContent) ||
+                             extractContent(charRange['#text']) ||
+                             extractContent(charRange.text) ||
+                             extractContent(charRange._) ||
+                             '';
+              }
+
+              // Debug: log what we're extracting
+              console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
+
+              // Debug: Show hex of characters around periods to identify any special characters
+              if (contentText.includes('.') && contentText.length > 20) {
+                const periodIndex = contentText.indexOf('.');
+                const context = contentText.substring(Math.max(0, periodIndex - 5), Math.min(contentText.length, periodIndex + 10));
+                console.log('  Context around first period:', JSON.stringify(context));
+                console.log('  Hex chars:', Array.from(context).map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join(' '));
+              }
+
+              // Detect common styles and add markdown - preserve EXACT original spacing
+              const styleName = appliedStyle.toLowerCase();
+
+              if (styleName.includes('italic') || styleName.includes('emphasis')) {
+                // Extract leading and trailing whitespace from original content
+                const leadingMatch = contentText.match(/^(\s*)/);
+                const trailingMatch = contentText.match(/(\s*)$/);
+                const leading = leadingMatch ? leadingMatch[1] : '';
+                const trailing = trailingMatch ? trailingMatch[1] : '';
+                const innerText = contentText.trim();
+
+                // Add markdown markers OUTSIDE the whitespace
+                markdownText += leading + '*' + innerText + '*' + trailing;
+              } else if (styleName.includes('bold') || styleName.includes('strong')) {
+                const leadingMatch = contentText.match(/^(\s*)/);
+                const trailingMatch = contentText.match(/(\s*)$/);
+                const leading = leadingMatch ? leadingMatch[1] : '';
+                const trailing = trailingMatch ? trailingMatch[1] : '';
+                const innerText = contentText.trim();
+
+                markdownText += leading + '**' + innerText + '**' + trailing;
+              } else {
+                // No special styling - keep original text exactly
+                markdownText += contentText;
+              }
+
+              text += contentText; // Plain text for comparison
+            }
+          }
+
+          // Look for direct Content
+          if (!markdownText && range.Content) {
+            markdownText = extractContent(range.Content);
+            text = markdownText;
+          }
+
+          // Add paragraph if there's any content
+          if (text && text.trim().length > 0) {
+            // Use markdown version if available
+            const finalText = markdownText || text;
+
+            // Very minimal cleanup - just normalize line endings, preserve ALL internal spacing
+            let cleanText = finalText
+              .replace(/\r\n/g, '\n')    // Normalize Windows line endings
+              .replace(/\r/g, '\n')      // Normalize old Mac line endings
+              .replace(/\u2028/g, '\n')  // Line separator to newline
+              .replace(/\u2029/g, '\n\n') // Paragraph separator to double newline
+              .trim();                   // Only trim outer edges
+
+            // Smart fix: Add missing spaces after sentence-ending punctuation
+            // This is a common IDML issue where spaces are lost during export
+            // Pattern: lowercase letter + punctuation + uppercase letter (start of new sentence)
+            cleanText = cleanText.replace(/([a-z])([.!?])([A-Z])/g, '$1$2 $3');
+
+            paragraphs.push(cleanText);
+          }
+        }
+
+        return paragraphs;
+      }
+
+    }
+
+    class MarkdownToIDMLConverter {
+      constructor(parsedData, textMappings) {
+        this.parsedData = parsedData;
+        this.textMappings = textMappings;
+      }
+
+      // Parse markdown and map it back to the original IDML structure
+      async convert(markdown) {
+        const lines = markdown.split('\n');
+        const storyUpdates = new Map(); // storySelf -> array of text updates
+        let currentStory = null;
+        let currentParagraphs = [];
+
+        for (const line of lines) {
+          if (line.startsWith('# ')) {
+            // Save previous story
+            if (currentStory && currentParagraphs.length > 0) {
+              storyUpdates.set(currentStory, currentParagraphs);
+            }
+            // Start new story
+            currentStory = line.substring(2).trim();
+            currentParagraphs = [];
+          } else if (line.trim()) {
+            // Add paragraph text
+            currentParagraphs.push(line.trim());
+          }
+        }
+
+        // Save last story
+        if (currentStory && currentParagraphs.length > 0) {
+          storyUpdates.set(currentStory, currentParagraphs);
+        }
+
+        return { storyUpdates };
+      }
+
+      // Build the updated IDML ZIP file with new text content
+      async buildIDML_zip(markdown) {
+        const { storyUpdates } = await this.convert(markdown);
+        const zip = new JSZip();
+
+        // Copy all non-story files from original IDML
+        const files = Object.keys(this.parsedData.zip.files);
+        for (const filename of files) {
+          if (filename.endsWith('/') || filename.startsWith('Stories/')) continue;
+
+          const fileData = await this.parsedData.zip.file(filename).async('arraybuffer');
+          zip.file(filename, fileData);
+        }
+
+        // Update story files with new text while preserving ALL formatting
+        for (const [storySelf, storyData] of this.parsedData.stories) {
+          const originalXML = storyData.xml;
+          const originalContent = storyData.originalContent;
+          const newParagraphs = storyUpdates.get(storySelf) || [];
+
+          if (newParagraphs.length === 0) {
+            // No changes, use original
+            const storyFile = this.parsedData.zip.file(
+              Array.from(this.parsedData.zip.file(/^Stories\/.*\.xml$/)).find(f => {
+                const self = originalXML.$?.Self || f.name;
+                return self === storySelf;
+              })?.name || `Stories/Story_${storySelf}.xml`
+            );
+            if (storyFile) {
+              const fileData = await storyFile.async('arraybuffer');
+              zip.file(storyFile.name, fileData);
+            }
+            continue;
+          }
+
+          // Parse the story structure to find all CharacterStyleRanges
+          const storyContent = originalXML.Story || originalXML['idPkg:Story'] || originalXML;
+          const paraRanges = storyContent.ParagraphStyleRange
+            ? (Array.isArray(storyContent.ParagraphStyleRange)
+                ? storyContent.ParagraphStyleRange
+                : [storyContent.ParagraphStyleRange])
+            : [];
+
+          // Build a list of all text segments in order
+          const textSegments = [];
+          for (const paraRange of paraRanges) {
+            if (paraRange.CharacterStyleRange) {
+              const charRanges = Array.isArray(paraRange.CharacterStyleRange)
+                ? paraRange.CharacterStyleRange
+                : [paraRange.CharacterStyleRange];
+
+              for (const charRange of charRanges) {
+                const content = this.extractTextFromCharRange(charRange);
+                if (content) {
+                  textSegments.push({
+                    charRange,
+                    originalText: content,
+                    style: charRange.$?.AppliedCharacterStyle || ''
+                  });
+                }
+              }
+            }
+          }
+
+          // Now map the new paragraphs back to the text segments
+          let segmentIndex = 0;
+          const newParagraphText = newParagraphs.join('\n\n');
+
+          // For now, we'll do a simple text replacement while preserving structure
+          // In a full implementation, we'd need to handle markdown parsing
+          let updatedContent = originalContent;
+          let paraIndex = 0;
+
+          // Replace each Content element with corresponding paragraph text
+          // This preserves ALL XML structure, attributes, and formatting
+          updatedContent = updatedContent.replace(
+            /(<Content[^>]*>)([^<]*)(<\/Content>)/g,
+            (match, openTag, content, closeTag) => {
+              // Only replace non-empty Content elements
+              if (content.trim() && paraIndex < newParagraphs.length) {
+                // Get the new text for this paragraph
+                const newText = newParagraphs[paraIndex];
+                paraIndex++;
+
+                // Preserve the exact same XML tags, only change the text content
+                return openTag + newText + closeTag;
+              }
+              return match;
+            }
+          );
+
+          // Find the original story filename
+          let storyFileName = null;
+          for (const [key, data] of this.parsedData.stories) {
+            if (key === storySelf) {
+              // Try to find the actual filename
+              const storyFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
+              for (const f of storyFiles) {
+                if (f.name.includes(storySelf) || f.name === `Stories/${storySelf}.xml`) {
+                  storyFileName = f.name;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+
+          // Fallback: use first unused story file or generate name
+          if (!storyFileName) {
+            const usedFiles = Array.from(storyUpdates.keys()).map(s => {
+              for (const f of this.parsedData.zip.file(/^Stories\/.*\.xml$/)) {
+                if (f.name.includes(s)) return f.name;
+              }
+              return null;
+            }).filter(Boolean);
+
+            const allStoryFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
+            for (const f of allStoryFiles) {
+              if (!usedFiles.includes(f.name)) {
+                storyFileName = f.name;
+                break;
+              }
+            }
+          }
+
+          if (storyFileName) {
+            zip.file(storyFileName, updatedContent);
+          }
+        }
+
+        // Copy designmap.xml and other resources
+        const designmapFile = this.parsedData.zip.file('designmap.xml');
+        if (designmapFile) {
+          const designmapData = await designmapFile.async('arraybuffer');
+          zip.file('designmap.xml', designmapData);
+        }
+
+        const resourcesFiles = this.parsedData.zip.file(/^Resources\/.*\.xml$/);
+        for (const file of resourcesFiles) {
+          const fileData = await file.async('arraybuffer');
+          zip.file(file.name, fileData);
+        }
+
+        const spreadsFiles = this.parsedData.zip.file(/^Spreads\/.*\.xml$/);
+        for (const file of spreadsFiles) {
+          const fileData = await file.async('arraybuffer');
+          zip.file(file.name, fileData);
+        }
+
+        return zip;
+      }
+
+      extractTextFromCharRange(charRange) {
+        if (!charRange) return '';
+
+        // Try to get text from Content element
+        if (charRange.Content !== undefined) {
+          if (typeof charRange.Content === 'string') {
+            return charRange.Content;
+          }
+          if (Array.isArray(charRange.Content)) {
+            return charRange.Content.join('');
+          }
+          if (typeof charRange.Content === 'object' && charRange.Content._) {
+            return charRange.Content._;
+          }
+        }
+
+        // Try other text properties
+        if (charRange['#text']) return charRange['#text'];
+        if (charRange.textContent) return charRange.textContent;
+        if (charRange.text) return charRange.text;
+        if (charRange._) return charRange._;
+
+        return '';
+      }
+    }
+
+    // App State
+    let currentParsedData = null;
+    let currentTextMappings = null;
+
+    // DOM Elements
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
     const uploadStatus = document.getElementById('uploadStatus');
@@ -352,75 +911,61 @@
 
     // Handle file upload
     async function handleFile(file) {
-      showStatus(uploadStatus, 'uploading', 'Uploading and converting...');
+      showStatus(uploadStatus, 'info', '<span class="loading"></span> Converting...');
       metadata.classList.add('hidden');
 
-      const formData = new FormData();
-      formData.append('file', file);
-
       try {
-        const response = await fetch('/api/idml-to-markdown', {
-          method: 'POST',
-          body: formData
-        });
+        const arrayBuffer = await file.arrayBuffer();
+        const converter = new IDMLToMarkdownConverter();
+        const result = await converter.convert(arrayBuffer);
 
-        const result = await response.json();
+        currentParsedData = result.parsedData;
+        currentTextMappings = result.textMappings; // Store mappings for round-trip
+        markdownEditor.value = result.markdown;
+        markdownEditor.readOnly = false;
+        downloadBtn.disabled = false;
+        copyBtn.disabled = false;
 
-        if (result.success) {
-          currentSessionId = result.sessionId;
-          markdownEditor.value = result.markdown;
-          markdownEditor.readOnly = false;
-          downloadBtn.disabled = false;
-          copyBtn.disabled = false;
+        // Show metadata
+        document.getElementById('storyCount').textContent = result.metadata.stories || 0;
+        document.getElementById('spreadCount').textContent = result.metadata.spreads || 0;
+        document.getElementById('styleCount').textContent = result.metadata.styles || 0;
+        metadata.classList.remove('hidden');
 
-          // Show metadata
-          document.getElementById('storyCount').textContent = result.metadata.stories || 0;
-          document.getElementById('spreadCount').textContent = result.metadata.spreads || 0;
-          document.getElementById('styleCount').textContent = result.metadata.styles || 0;
-          metadata.classList.remove('hidden');
-
-          showStatus(uploadStatus, 'success', `✓ Converted successfully! ${result.metadata.stories || 0} stories extracted.`);
-        } else {
-          showStatus(uploadStatus, 'error', '✗ ' + (result.error || 'Conversion failed'));
-        }
+        showStatus(uploadStatus, 'success', `✓ Converted successfully! ${result.metadata.stories || 0} stories extracted.`);
       } catch (error) {
-        showStatus(uploadStatus, 'error', '✗ Upload failed: ' + error.message);
+        console.error('Conversion error:', error);
+        showStatus(uploadStatus, 'error', '✗ Conversion failed: ' + error.message);
       }
     }
 
     // Download converted IDML
     downloadBtn.addEventListener('click', async () => {
-      if (!currentSessionId) return;
+      if (!currentParsedData) return;
 
-      showStatus(editorStatus, 'uploading', 'Converting back to IDML...');
+      showStatus(editorStatus, 'info', '<span class="loading"></span> Preparing download...');
 
       try {
-        const response = await fetch('/api/markdown-to-idml', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: currentSessionId,
-            markdown: markdownEditor.value
-          })
-        });
+        // Use the improved MarkdownToIDMLConverter that preserves all formatting
+        const converter = new MarkdownToIDMLConverter(currentParsedData, currentTextMappings);
+        const zip = await converter.buildIDML_zip(markdownEditor.value);
 
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `converted_${Date.now()}.idml`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+        // Generate the ZIP file
+        const blob = await zip.generateAsync({ type: 'blob' });
 
-          showStatus(editorStatus, 'success', '✓ IDML file downloaded! Open it in InDesign to see your changes.');
-        } else {
-          const error = await response.json();
-          showStatus(editorStatus, 'error', '✗ ' + (error.error || 'Conversion failed'));
-        }
+        // Download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `converted_${Date.now()}.idml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showStatus(editorStatus, 'success', '✓ IDML file downloaded! Open it in InDesign to see your changes.');
       } catch (error) {
+        console.error('Download error:', error);
         showStatus(editorStatus, 'error', '✗ Download failed: ' + error.message);
       }
     });
@@ -441,7 +986,7 @@
     // Show status message
     function showStatus(element, type, message) {
       element.className = 'status ' + type;
-      element.textContent = message;
+      element.innerHTML = message;
       element.classList.remove('hidden');
     }
   </script>
