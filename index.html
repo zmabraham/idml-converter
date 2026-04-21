@@ -410,9 +410,9 @@
           }
         }
 
-        // Handle text content
+        // Handle text content - DON'T TRIM! Preserve all spaces
         if (element.textContent && element.children.length === 0) {
-          return element.textContent.trim();
+          return element.textContent;  // Don't trim - preserve all whitespace!
         }
 
         // Simplify single-item arrays
@@ -529,6 +529,9 @@
 
               // Extract content exactly as-is
               const contentText = extractContent(charRange.Content);
+
+              // Debug: log what we're extracting
+              console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
 
               // Detect common styles and add markdown - preserve surrounding spaces
               const styleName = appliedStyle.toLowerCase();
