@@ -472,16 +472,16 @@
       extractParagraphs(story) {
         const paragraphs = [];
 
-        // Helper to extract text from Content element - preserves spaces
+        // Helper to extract text from Content element - preserves ALL spaces
         const extractContent = (content) => {
-          if (!content) return '';
-          if (typeof content === 'string') return content;
+          if (content === null || content === undefined) return '';
+          if (typeof content === 'string') return content;  // Return string exactly, including spaces
           if (Array.isArray(content)) {
             // Join array elements preserving content exactly
             return content.map(extractContent).join('');
           }
           if (typeof content === 'object') {
-            // Check for text content properties
+            // Check for text content properties - preserve exact content
             if (content._ !== undefined) return content._;
             if (content['#text'] !== undefined) return content['#text'];
             if (content.textContent !== undefined) return content.textContent;
@@ -490,11 +490,9 @@
             // Recursively check all properties, maintaining order
             let text = '';
             for (const key of Object.keys(content)) {
-              if (key !== '$' && key !== 'Self' && key !== 'AppliedCharacterStyle') {
+              if (key !== '$' && key !== 'Self' && key !== 'AppliedCharacterStyle' && key !== 'AppliedParagraphStyle') {
                 const value = content[key];
-                if (value !== null && value !== undefined) {
-                  text += extractContent(value);
-                }
+                text += extractContent(value);
               }
             }
             return text;
@@ -515,30 +513,61 @@
 
         for (const range of paraRanges) {
           let text = '';
+          let markdownText = ''; // Will include markdown formatting
 
-          // Look for CharacterStyleRange
+          // Look for CharacterStyleRange - preserve exact content including ALL spaces
           if (range.CharacterStyleRange) {
             const charRanges = Array.isArray(range.CharacterStyleRange)
               ? range.CharacterStyleRange
               : [range.CharacterStyleRange];
 
             for (const charRange of charRanges) {
-              // Extract content directly - don't add extra spaces
+              // Get the applied character style
+              const appliedStyle = charRange.$?.AppliedCharacterStyle ||
+                                  charRange.AppliedCharacterStyle ||
+                                  '';
+
+              // Extract content exactly as-is
               const contentText = extractContent(charRange.Content);
-              text += contentText;
+
+              // Detect common styles and add markdown
+              const styleName = appliedStyle.toLowerCase();
+              let prefix = '';
+              let suffix = '';
+
+              if (styleName.includes('italic') || styleName.includes('emphasis')) {
+                prefix = '*';
+                suffix = '*';
+              } else if (styleName.includes('bold') || styleName.includes('strong')) {
+                prefix = '**';
+                suffix = '**';
+              }
+
+              markdownText += prefix + contentText + suffix;
+              text += contentText; // Plain text for comparison
             }
           }
 
           // Look for direct Content
-          if (!text && range.Content) {
-            text = extractContent(range.Content);
+          if (!markdownText && range.Content) {
+            markdownText = extractContent(range.Content);
+            text = markdownText;
           }
 
-          if (text.trim()) {
-            // Clean up but preserve single spaces between words
-            const cleanText = text
-              .replace(/\s+/g, ' ')  // Multiple spaces to single space
-              .trim();
+          // Add paragraph if there's any content
+          if (text && text.trim().length > 0) {
+            // Use markdown version if available
+            const finalText = markdownText || text;
+
+            // Clean up but preserve spaces within words
+            let cleanText = finalText
+              .replace(/\r\n/g, '\n')    // Normalize line endings
+              .replace(/\r/g, '\n')      // Normalize line endings
+              .replace(/[ \t]+/g, ' ')   // Multiple spaces/tabs to single space
+              .replace(/\n\s+/g, '\n')   // Remove leading spaces on new lines
+              .replace(/\s+\n/g, '\n')   // Remove trailing spaces before newlines
+              .trim();                   // Trim outer whitespace only
+
             paragraphs.push(cleanText);
           }
         }
