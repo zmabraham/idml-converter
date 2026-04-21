@@ -383,6 +383,15 @@
       parseXML(content) {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(content, 'text/xml');
+
+        // Debug: test how parser handles whitespace
+        const testEl = xmlDoc.getElementsByTagName('Content')[0];
+        if (testEl) {
+          console.log('DOMParser test - Content element textContent (first 100 chars):',
+                     JSON.stringify(testEl.textContent.substring(0, 100)));
+          console.log('DOMParser test - Content element has children:', testEl.children.length);
+        }
+
         return this.xmlToObj(xmlDoc.documentElement);
       }
 
@@ -522,13 +531,33 @@
               : [range.CharacterStyleRange];
 
             for (const charRange of charRanges) {
+              // Debug: log the full structure of the first few charRanges
+              if (paragraphs.length === 0 && text.length === 0) {
+                console.log('Full charRange structure:', JSON.stringify(charRange, (key, value) => {
+                  if (key === 'Content' && typeof value === 'string' && value.length > 20) {
+                    return value.substring(0, 20) + '...';
+                  }
+                  return value;
+                }, 2));
+              }
+
               // Get the applied character style
               const appliedStyle = charRange.$?.AppliedCharacterStyle ||
                                   charRange.AppliedCharacterStyle ||
                                   '';
 
-              // Extract content exactly as-is
-              const contentText = extractContent(charRange.Content);
+              // Extract content - try multiple possible properties
+              let contentText = '';
+              if (charRange.Content !== undefined) {
+                contentText = extractContent(charRange.Content);
+              } else {
+                // Try other possible text properties
+                contentText = extractContent(charRange.textContent) ||
+                             extractContent(charRange['#text']) ||
+                             extractContent(charRange.text) ||
+                             extractContent(charRange._) ||
+                             '';
+              }
 
               // Debug: log what we're extracting
               console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
