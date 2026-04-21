@@ -445,6 +445,7 @@
     class IDMLToMarkdownConverter {
       constructor() {
         this.parser = new IDMLParser();
+        this.textMappings = new Map(); // Store text position mappings for round-trip
       }
 
       async convert(arrayBuffer) {
@@ -458,13 +459,15 @@
             spreads: result.spreadsCount,
             styles: result.hasStyles ? 1 : 0
           },
-          parsedData: result
+          parsedData: result,
+          textMappings: this.textMappings // Store for round-trip
         };
       }
 
       buildMarkdown(data) {
         let markdown = '';
         let storyIndex = 1;
+        this.textMappings = new Map(); // Reset mappings
 
         console.log('Building markdown from', data.stories.size, 'stories');
 
@@ -474,19 +477,14 @@
 
           console.log('Processing story:', storyName, 'Keys:', Object.keys(story).filter(k => k !== '$'));
 
-          const paragraphs = this.extractParagraphs(story);
+          const paragraphs = this.extractParagraphs(story, storySelf); // Pass storySelf for mapping
 
           console.log('Extracted paragraphs:', paragraphs.length, 'from', storyName);
 
           if (paragraphs.length > 0) {
             markdown += `# ${storyName}\n\n`;
             for (const para of paragraphs) {
-              markdown += para + '\n\n';
-              // Debug first paragraph
-              if (paragraphs.indexOf(para) === 0) {
-                console.log('First paragraph markdown (first 200 chars):', JSON.stringify(para.substring(0, 200)));
-                console.log('First paragraph markdown length:', para.length);
-              }
+              markdown += para.text + '\n\n'; // Use .text to get just the markdown text
             }
           }
 
@@ -494,13 +492,13 @@
         }
 
         console.log('Final markdown length:', markdown.length);
-        console.log('Final markdown (first 500 chars):', markdown.substring(0, 500));
 
         return markdown.trim();
       }
 
-      extractParagraphs(story) {
+      extractParagraphs(story, storySelf) {
         const paragraphs = [];
+        const storyMappings = []; // Store mappings for this story
 
         // Helper to extract text from Content element - preserves ALL spaces
         const extractContent = (content) => {
@@ -655,42 +653,222 @@
     }
 
     class MarkdownToIDMLConverter {
-      constructor(parsedData) {
+      constructor(parsedData, textMappings) {
         this.parsedData = parsedData;
+        this.textMappings = textMappings;
       }
 
+      // Parse markdown and map it back to the original IDML structure
       async convert(markdown) {
         const lines = markdown.split('\n');
-        const storyTexts = [];
-        let currentText = [];
+        const storyUpdates = new Map(); // storySelf -> array of text updates
+        let currentStory = null;
+        let currentParagraphs = [];
 
         for (const line of lines) {
           if (line.startsWith('# ')) {
-            if (currentText.length > 0) {
-              storyTexts.push(currentText.join('\n'));
-              currentText = [];
+            // Save previous story
+            if (currentStory && currentParagraphs.length > 0) {
+              storyUpdates.set(currentStory, currentParagraphs);
             }
-          } else if (line.trim() && !line.startsWith('##')) {
-            currentText.push(line.trim());
+            // Start new story
+            currentStory = line.substring(2).trim();
+            currentParagraphs = [];
+          } else if (line.trim()) {
+            // Add paragraph text
+            currentParagraphs.push(line.trim());
           }
         }
 
-        if (currentText.length > 0) {
-          storyTexts.push(currentText.join('\n'));
+        // Save last story
+        if (currentStory && currentParagraphs.length > 0) {
+          storyUpdates.set(currentStory, currentParagraphs);
         }
 
-        return { storyTexts };
+        return { storyUpdates };
       }
 
-      async buildIDML_zip() {
-        // Return the cached zip with modifications
-        return this.parsedData.zip;
+      // Build the updated IDML ZIP file with new text content
+      async buildIDML_zip(markdown) {
+        const { storyUpdates } = await this.convert(markdown);
+        const zip = new JSZip();
+
+        // Copy all non-story files from original IDML
+        const files = Object.keys(this.parsedData.zip.files);
+        for (const filename of files) {
+          if (filename.endsWith('/') || filename.startsWith('Stories/')) continue;
+
+          const fileData = await this.parsedData.zip.file(filename).async('arraybuffer');
+          zip.file(filename, fileData);
+        }
+
+        // Update story files with new text while preserving ALL formatting
+        for (const [storySelf, storyData] of this.parsedData.stories) {
+          const originalXML = storyData.xml;
+          const originalContent = storyData.originalContent;
+          const newParagraphs = storyUpdates.get(storySelf) || [];
+
+          if (newParagraphs.length === 0) {
+            // No changes, use original
+            const storyFile = this.parsedData.zip.file(
+              Array.from(this.parsedData.zip.file(/^Stories\/.*\.xml$/)).find(f => {
+                const self = originalXML.$?.Self || f.name;
+                return self === storySelf;
+              })?.name || `Stories/Story_${storySelf}.xml`
+            );
+            if (storyFile) {
+              const fileData = await storyFile.async('arraybuffer');
+              zip.file(storyFile.name, fileData);
+            }
+            continue;
+          }
+
+          // Parse the story structure to find all CharacterStyleRanges
+          const storyContent = originalXML.Story || originalXML['idPkg:Story'] || originalXML;
+          const paraRanges = storyContent.ParagraphStyleRange
+            ? (Array.isArray(storyContent.ParagraphStyleRange)
+                ? storyContent.ParagraphStyleRange
+                : [storyContent.ParagraphStyleRange])
+            : [];
+
+          // Build a list of all text segments in order
+          const textSegments = [];
+          for (const paraRange of paraRanges) {
+            if (paraRange.CharacterStyleRange) {
+              const charRanges = Array.isArray(paraRange.CharacterStyleRange)
+                ? paraRange.CharacterStyleRange
+                : [paraRange.CharacterStyleRange];
+
+              for (const charRange of charRanges) {
+                const content = this.extractTextFromCharRange(charRange);
+                if (content) {
+                  textSegments.push({
+                    charRange,
+                    originalText: content,
+                    style: charRange.$?.AppliedCharacterStyle || ''
+                  });
+                }
+              }
+            }
+          }
+
+          // Now map the new paragraphs back to the text segments
+          let segmentIndex = 0;
+          const newParagraphText = newParagraphs.join('\n\n');
+
+          // For now, we'll do a simple text replacement while preserving structure
+          // In a full implementation, we'd need to handle markdown parsing
+          let updatedContent = originalContent;
+          let paraIndex = 0;
+
+          // Replace each Content element with corresponding paragraph text
+          // This preserves ALL XML structure, attributes, and formatting
+          updatedContent = updatedContent.replace(
+            /(<Content[^>]*>)([^<]*)(<\/Content>)/g,
+            (match, openTag, content, closeTag) => {
+              // Only replace non-empty Content elements
+              if (content.trim() && paraIndex < newParagraphs.length) {
+                // Get the new text for this paragraph
+                const newText = newParagraphs[paraIndex];
+                paraIndex++;
+
+                // Preserve the exact same XML tags, only change the text content
+                return openTag + newText + closeTag;
+              }
+              return match;
+            }
+          );
+
+          // Find the original story filename
+          let storyFileName = null;
+          for (const [key, data] of this.parsedData.stories) {
+            if (key === storySelf) {
+              // Try to find the actual filename
+              const storyFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
+              for (const f of storyFiles) {
+                if (f.name.includes(storySelf) || f.name === `Stories/${storySelf}.xml`) {
+                  storyFileName = f.name;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+
+          // Fallback: use first unused story file or generate name
+          if (!storyFileName) {
+            const usedFiles = Array.from(storyUpdates.keys()).map(s => {
+              for (const f of this.parsedData.zip.file(/^Stories\/.*\.xml$/)) {
+                if (f.name.includes(s)) return f.name;
+              }
+              return null;
+            }).filter(Boolean);
+
+            const allStoryFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
+            for (const f of allStoryFiles) {
+              if (!usedFiles.includes(f.name)) {
+                storyFileName = f.name;
+                break;
+              }
+            }
+          }
+
+          if (storyFileName) {
+            zip.file(storyFileName, updatedContent);
+          }
+        }
+
+        // Copy designmap.xml and other resources
+        const designmapFile = this.parsedData.zip.file('designmap.xml');
+        if (designmapFile) {
+          const designmapData = await designmapFile.async('arraybuffer');
+          zip.file('designmap.xml', designmapData);
+        }
+
+        const resourcesFiles = this.parsedData.zip.file(/^Resources\/.*\.xml$/);
+        for (const file of resourcesFiles) {
+          const fileData = await file.async('arraybuffer');
+          zip.file(file.name, fileData);
+        }
+
+        const spreadsFiles = this.parsedData.zip.file(/^Spreads\/.*\.xml$/);
+        for (const file of spreadsFiles) {
+          const fileData = await file.async('arraybuffer');
+          zip.file(file.name, fileData);
+        }
+
+        return zip;
+      }
+
+      extractTextFromCharRange(charRange) {
+        if (!charRange) return '';
+
+        // Try to get text from Content element
+        if (charRange.Content !== undefined) {
+          if (typeof charRange.Content === 'string') {
+            return charRange.Content;
+          }
+          if (Array.isArray(charRange.Content)) {
+            return charRange.Content.join('');
+          }
+          if (typeof charRange.Content === 'object' && charRange.Content._) {
+            return charRange.Content._;
+          }
+        }
+
+        // Try other text properties
+        if (charRange['#text']) return charRange['#text'];
+        if (charRange.textContent) return charRange.textContent;
+        if (charRange.text) return charRange.text;
+        if (charRange._) return charRange._;
+
+        return '';
       }
     }
 
     // App State
     let currentParsedData = null;
-    let currentStoryTexts = [];
+    let currentTextMappings = null;
 
     // DOM Elements
     const uploadArea = document.getElementById('uploadArea');
@@ -742,6 +920,7 @@
         const result = await converter.convert(arrayBuffer);
 
         currentParsedData = result.parsedData;
+        currentTextMappings = result.textMappings; // Store mappings for round-trip
         markdownEditor.value = result.markdown;
         markdownEditor.readOnly = false;
         downloadBtn.disabled = false;
@@ -767,63 +946,9 @@
       showStatus(editorStatus, 'info', '<span class="loading"></span> Preparing download...');
 
       try {
-        // For client-side demo, we'll create a simple IDML with updated text
-        const zip = new JSZip();
-
-        // Copy all files from original IDML
-        const files = Object.keys(currentParsedData.zip.files);
-        for (const filename of files) {
-          if (filename.endsWith('/')) continue;
-
-          const fileData = await currentParsedData.zip.file(filename).async('arraybuffer');
-          zip.file(filename, fileData);
-        }
-
-        // Update story files with new text content
-        const lines = markdownEditor.value.split('\n');
-        const storyTexts = [];
-        let currentText = [];
-
-        for (const line of lines) {
-          if (line.startsWith('# ')) {
-            if (currentText.length > 0) {
-              storyTexts.push(currentText.join(' '));
-              currentText = [];
-            }
-          } else if (line.trim() && !line.startsWith('##')) {
-            currentText.push(line.trim());
-          }
-        }
-
-        if (currentText.length > 0) {
-          storyTexts.push(currentText.join(' '));
-        }
-
-        // Update each story file with new text
-        let storyIndex = 0;
-        const storyFiles = currentParsedData.zip.file(/^Stories\/.*\.xml$/);
-
-        for (const file of storyFiles) {
-          if (storyIndex >= storyTexts.length) break;
-
-          const originalContent = await file.async('string');
-          const newText = storyTexts[storyIndex];
-
-          // Simple text replacement in Content elements
-          const updatedContent = originalContent.replace(
-            /<Content[^>]*>([^<]*)<\/Content>/g,
-            (match, p1) => {
-              // Replace actual text content with new text (first occurrence gets the new text)
-              if (p1.trim()) {
-                return `<Content>${newText}</Content>`;
-              }
-              return match;
-            }
-          );
-
-          zip.file(file.name, updatedContent);
-          storyIndex++;
-        }
+        // Use the improved MarkdownToIDMLConverter that preserves all formatting
+        const converter = new MarkdownToIDMLConverter(currentParsedData, currentTextMappings);
+        const zip = await converter.buildIDML_zip(markdownEditor.value);
 
         // Generate the ZIP file
         const blob = await zip.generateAsync({ type: 'blob' });
