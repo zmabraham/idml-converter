@@ -384,12 +384,19 @@
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(content, 'text/xml');
 
-        // Debug: test how parser handles whitespace
+        // Debug: test how parser handles whitespace vs raw XML
         const testEl = xmlDoc.getElementsByTagName('Content')[0];
         if (testEl) {
-          console.log('DOMParser test - Content element textContent (first 100 chars):',
-                     JSON.stringify(testEl.textContent.substring(0, 100)));
-          console.log('DOMParser test - Content element has children:', testEl.children.length);
+          console.log('DOMParser test - Content textContent length:', testEl.textContent.length);
+          console.log('DOMParser test - Content textContent (JSON):', JSON.stringify(testEl.textContent));
+          console.log('DOMParser test - Content outerHTML:', testEl.outerHTML);
+        }
+
+        // Also test raw XML for comparison
+        const contentMatch = content.match(/<Content[^>]*>([^<]+)<\/Content>/);
+        if (contentMatch) {
+          console.log('Raw XML Content:', JSON.stringify(contentMatch[1]));
+          console.log('Raw XML length:', contentMatch[1].length);
         }
 
         return this.xmlToObj(xmlDoc.documentElement);
