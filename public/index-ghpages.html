@@ -530,20 +530,41 @@
               // Extract content exactly as-is
               const contentText = extractContent(charRange.Content);
 
-              // Detect common styles and add markdown
+              // Detect common styles and add markdown - preserve surrounding spaces
               const styleName = appliedStyle.toLowerCase();
               let prefix = '';
               let suffix = '';
 
               if (styleName.includes('italic') || styleName.includes('emphasis')) {
-                prefix = '*';
-                suffix = '*';
+                // Check if content has leading/trailing spaces and preserve them
+                const leadingSpace = /^\s+/.test(contentText);
+                const trailingSpace = /\s+$/.test(contentText);
+                const trimmedText = contentText.trim();
+
+                if (leadingSpace) prefix = ' *';
+                else prefix = '*';
+
+                if (trailingSpace) suffix = '* ';
+                else suffix = '*';
+
+                markdownText += prefix + trimmedText + suffix;
               } else if (styleName.includes('bold') || styleName.includes('strong')) {
-                prefix = '**';
-                suffix = '**';
+                const leadingSpace = /^\s+/.test(contentText);
+                const trailingSpace = /\s+$/.test(contentText);
+                const trimmedText = contentText.trim();
+
+                if (leadingSpace) prefix = ' **';
+                else prefix = '**';
+
+                if (trailingSpace) suffix = '** ';
+                else suffix = '**';
+
+                markdownText += prefix + trimmedText + suffix;
+              } else {
+                // No special styling - keep original text exactly
+                markdownText += contentText;
               }
 
-              markdownText += prefix + contentText + suffix;
               text += contentText; // Plain text for comparison
             }
           }
@@ -559,14 +580,11 @@
             // Use markdown version if available
             const finalText = markdownText || text;
 
-            // Clean up but preserve spaces within words
+            // Minimal cleanup - only normalize line endings
             let cleanText = finalText
               .replace(/\r\n/g, '\n')    // Normalize line endings
               .replace(/\r/g, '\n')      // Normalize line endings
-              .replace(/[ \t]+/g, ' ')   // Multiple spaces/tabs to single space
-              .replace(/\n\s+/g, '\n')   // Remove leading spaces on new lines
-              .replace(/\s+\n/g, '\n')   // Remove trailing spaces before newlines
-              .trim();                   // Trim outer whitespace only
+              .trim();                   // Only trim outer whitespace
 
             paragraphs.push(cleanText);
           }
