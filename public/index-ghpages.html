@@ -1,994 +1,2608 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IDML ↔ Markdown Converter</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+<meta charset="utf-8">
+<title>IDML ↔ Markdown Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,600&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --cream: #f1ebdd;
+    --cream-2: #e7dec8;
+    --paper: #ffffff;
+    --ink: #17140f;
+    --ink-2: #4b453a;
+    --ink-3: #837c6d;
+    --accent: #c0381e;
+    --accent-2: #8a260f;
+    --rule: #d2c6ac;
+    --rule-2: #b8a988;
+    --highlight: rgba(192, 56, 30, 0.09);
+    --hit: #fde68a;
+    /* themeable surfaces */
+    --margin-rule: rgba(192, 56, 30, 0.12);
+    --label-bg: rgba(192, 56, 30, 0.07);
+    --label-bg-hover: rgba(192, 56, 30, 0.14);
+    --selection-bg: rgba(192, 56, 30, 0.18);
+    --changed-border: rgba(192, 56, 30, 0.35);
+    --bg-pattern: radial-gradient(circle at 1px 1px, rgba(23,20,15,0.06) 1px, transparent 0);
+    --paper-shadow: 0 1px 2px rgba(23,20,15,0.05), 0 12px 28px -12px rgba(23,20,15,0.14);
+  }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
-      color: #333;
-      line-height: 1.6;
-    }
+  /* Dark theme — deep ink with warm ivory text */
+  body.theme-dark {
+    --cream: #14110c;
+    --cream-2: #1e1a14;
+    --paper: #221e18;
+    --ink: #f0e8d4;
+    --ink-2: #b8ae97;
+    --ink-3: #837a67;
+    --accent: #e86a4a;
+    --accent-2: #ff8866;
+    --rule: #2e2a23;
+    --rule-2: #44 3e 34;
+    --highlight: rgba(232, 106, 74, 0.12);
+    --hit: #6a5520;
+    --margin-rule: rgba(232, 106, 74, 0.2);
+    --label-bg: rgba(232, 106, 74, 0.14);
+    --label-bg-hover: rgba(232, 106, 74, 0.24);
+    --selection-bg: rgba(232, 106, 74, 0.28);
+    --changed-border: rgba(232, 106, 74, 0.5);
+    --bg-pattern: radial-gradient(circle at 1px 1px, rgba(240,232,212,0.035) 1px, transparent 0);
+    --paper-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -8px rgba(0,0,0,0.5);
+  }
 
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
-    }
+  /* Minimal theme — flat black/white, no ornament */
+  body.theme-minimal {
+    --cream: #fbfbf9;
+    --cream-2: #f3f3f0;
+    --paper: #ffffff;
+    --ink: #101010;
+    --ink-2: #555555;
+    --ink-3: #999999;
+    --accent: #101010;
+    --accent-2: #000000;
+    --rule: #e6e6e2;
+    --rule-2: #c8c8c4;
+    --highlight: rgba(0, 0, 0, 0.045);
+    --hit: #fff3b8;
+    --margin-rule: transparent;
+    --label-bg: rgba(0, 0, 0, 0.04);
+    --label-bg-hover: rgba(0, 0, 0, 0.08);
+    --selection-bg: rgba(0, 0, 0, 0.14);
+    --changed-border: rgba(0, 0, 0, 0.3);
+    --bg-pattern: none;
+    --paper-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 6px 16px -6px rgba(0,0,0,0.08);
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    background-image: var(--bg-pattern);
+    background-size: 22px 22px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition: margin-left 0.22s ease;
+  }
+  @media (min-width: 900px) {
+    body.sidebar-open { margin-left: 280px; }
+  }
 
-    header {
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      margin-bottom: 20px;
-    }
+  /* Masthead */
+  .masthead {
+    max-width: 1100px; margin: 0 auto; padding: 44px 36px 28px;
+    border-bottom: 1px solid var(--rule);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+  }
+  .masthead h1 {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144;
+    font-weight: 800;
+    font-size: clamp(42px, 6vw, 68px);
+    letter-spacing: -0.035em; line-height: 0.95;
+  }
+  .masthead h1 em { font-style: italic; font-weight: 600; color: var(--accent); }
+  .masthead .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-3); text-align: right; white-space: nowrap;
+  }
+  .masthead .meta strong { color: var(--ink); font-weight: 500; }
 
-    h1 {
-      font-size: 28px;
-      color: #2563eb;
-      margin-bottom: 10px;
-    }
+  .tag-row {
+    max-width: 1100px; margin: 0 auto; padding: 14px 36px;
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font: 11px/1.5 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .tag-row .dot { color: var(--accent); }
 
-    .subtitle {
-      color: #666;
-      font-size: 16px;
-    }
+  /* Sticky toolbar */
+  .toolbar-wrap {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--cream);
+    border-bottom: 1px solid var(--rule);
+    backdrop-filter: blur(8px);
+    background-color: rgba(241, 235, 221, 0.92);
+  }
+  .toolbar {
+    max-width: 1100px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px; padding: 14px 36px;
+  }
+  .toolbar .file-info {
+    display: flex; align-items: baseline; gap: 16px;
+    overflow: hidden; flex: 1; min-width: 0;
+  }
+  .toolbar .filename {
+    font: 600 21px/1.1 'Fraunces', serif;
+    letter-spacing: -0.01em; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .toolbar .stats {
+    font: 10px/1 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-3); white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-row { display: flex; gap: 8px; flex-shrink: 0; }
+  button {
+    font: 500 11px/1 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    padding: 10px 14px;
+    border: 1px solid var(--ink);
+    background: transparent; color: var(--ink);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  button:hover { background: var(--ink); color: var(--cream); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+  button.ghost { border-color: var(--rule-2); color: var(--ink-2); }
+  button.ghost:hover { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .main-panel {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
+  /* Main */
+  main { max-width: 1100px; margin: 0 auto; padding: 36px 36px 80px; }
 
-    @media (max-width: 900px) {
-      .main-panel {
-        grid-template-columns: 1fr;
-      }
-    }
+  /* Drop zone */
+  .drop {
+    position: relative; display: block;
+    border: 2px dashed var(--rule-2);
+    background: var(--paper);
+    padding: 80px 40px; text-align: center; cursor: pointer;
+    transition: all 0.18s ease;
+  }
+  .drop:hover, .drop.dragging { border-color: var(--accent); background: #fff; transform: translateY(-1px); }
+  .drop .big {
+    font: italic 600 38px/1 'Fraunces', serif;
+    letter-spacing: -0.02em; color: var(--ink); margin-bottom: 8px;
+  }
+  .drop .small {
+    font: 12px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.18em; color: var(--ink-3);
+  }
+  .drop .corner { position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); }
+  .drop .corner.tl { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+  .drop .corner.tr { top: -2px; right: -2px; border-left: 0; border-bottom: 0; }
+  .drop .corner.bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; }
+  .drop .corner.br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+  #fileInput { display: none; }
 
-    .panel {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      overflow: hidden;
-    }
+  /* Paper */
+  .paper {
+    max-width: 820px; margin: 0 auto 28px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    box-shadow: var(--paper-shadow);
+    animation: rise 0.45s cubic-bezier(0.2,0.8,0.2,1) both;
+    position: relative;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .paper::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to right,
+      transparent 0, transparent calc(72px - 1px),
+      var(--margin-rule) calc(72px - 1px),
+      var(--margin-rule) 72px, transparent 72px);
+  }
+  @media (max-width: 680px) { .paper::before { display: none; } }
 
-    .panel-header {
-      background: #f8f9fa;
-      padding: 15px 20px;
-      border-bottom: 1px solid #e9ecef;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+  .paper-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; padding: 24px 56px 16px 88px;
+    border-bottom: 1px solid var(--rule);
+    background: linear-gradient(to bottom, rgba(241,235,221,0.35), transparent);
+  }
+  .paper-head .title { display: flex; align-items: baseline; gap: 12px; overflow: hidden; }
+  .paper-head .title .num {
+    font: italic 600 28px/1 'Fraunces', serif;
+    color: var(--accent); flex-shrink: 0;
+  }
+  .paper-head .title .label {
+    font: 11px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .paper-head .meta {
+    font: 10px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-3); white-space: nowrap;
+  }
 
-    .panel-title {
-      font-weight: 600;
-      font-size: 16px;
-    }
+  /* Document */
+  .doc {
+    font: 17px/1.68 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    color: var(--ink);
+    padding: 44px 56px 48px 88px;
+    outline: none;
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: "opsz" 14;
+    caret-color: var(--accent);
+  }
+  .doc:focus { outline: none; }
+  .doc ::selection { background: var(--selection-bg); }
+  .doc .para {
+    position: relative;
+    margin: 0 0 0.85em;
+    min-height: 1.68em;
+  }
+  .doc .para:last-child { margin-bottom: 0; }
+  .doc span[data-cid] {
+    transition: background 0.2s, border-bottom-color 0.2s;
+    border-bottom: 1px solid transparent;
+  }
+  .doc span[data-cid].changed {
+    background: var(--highlight);
+    border-bottom-color: var(--changed-border);
+  }
+  /* style-rendered spans */
+  .doc span[data-cid].is-bold { font-weight: 700; }
+  .doc span[data-cid].is-italic { font-style: italic; }
 
-    .panel-content {
-      padding: 20px;
-    }
+  /* paragraph style label — inline chip at start of paragraph, always fully visible */
+  .doc .para-label {
+    display: inline-block;
+    vertical-align: baseline;
+    user-select: none;
+    -webkit-user-select: none;
+    font: 500 9.5px/1.4 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--accent-2);
+    background: var(--label-bg);
+    border-left: 2px solid var(--accent);
+    padding: 3px 9px 3px 7px;
+    margin: 0 12px 2px 0;
+    border-radius: 0 2px 2px 0;
+    cursor: default;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .doc .para-label:hover { background: var(--label-bg-hover); }
 
-    .upload-area {
-      border: 2px dashed #cbd5e1;
-      border-radius: 8px;
-      padding: 40px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.3s;
-    }
+  /* char count (right gutter) */
+  .doc .para[data-count]::after {
+    content: attr(data-count);
+    position: absolute; right: -48px; top: 0.45em;
+    font: 9px/1 'JetBrains Mono', monospace;
+    color: var(--ink-3);
+    pointer-events: none; user-select: none;
+    opacity: 0.55; white-space: nowrap;
+  }
+  .doc .para[data-over="1"]::after {
+    color: var(--accent); opacity: 1; font-weight: 500;
+  }
+  @media (max-width: 880px) {
+    .doc .para[data-count]::after { display: none; }
+  }
+  @media (max-width: 680px) {
+    .paper-head { padding: 18px 22px 14px; }
+    .doc { padding: 28px 22px 32px; font-size: 16px; }
+  }
 
-    .upload-area:hover {
-      border-color: #2563eb;
-      background: #f0f9ff;
-    }
+  /* Find & Replace panel */
+  .find-panel {
+    position: fixed; top: 78px; right: 36px; width: 340px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    box-shadow: 0 12px 32px -8px rgba(23,20,15,0.22);
+    padding: 16px; z-index: 60;
+    font-size: 13px;
+    display: none;
+  }
+  .find-panel.visible { display: block; animation: rise 0.2s; }
+  .find-panel .row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .find-panel input[type="text"] {
+    flex: 1; font: 13px/1.4 'Source Serif 4', serif;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    background: var(--cream);
+    outline: none;
+  }
+  .find-panel input:focus { border-color: var(--accent); background: #fff; }
+  .find-panel .count {
+    font: 10px/1 'JetBrains Mono', monospace;
+    color: var(--ink-3);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    min-width: 58px; text-align: right;
+  }
+  .find-panel .controls {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  }
+  .find-panel .opts {
+    display: flex; gap: 12px;
+    font: 10px/1 'JetBrains Mono', monospace;
+    color: var(--ink-3); text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .find-panel label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  .find-panel input[type="checkbox"] { accent-color: var(--accent); }
+  .find-panel button.small { padding: 7px 10px; font-size: 10px; letter-spacing: 0.12em; }
+  .find-panel .close {
+    position: absolute; top: 8px; right: 8px;
+    padding: 4px 8px; background: transparent; border: 0; color: var(--ink-3);
+    font-size: 14px; letter-spacing: 0;
+  }
+  .find-panel .close:hover { background: transparent; color: var(--accent); }
 
-    .upload-area.dragover {
-      border-color: #2563eb;
-      background: #dbeafe;
-    }
+  /* Custom Highlight API */
+  ::highlight(find-hit) { background-color: #fde68a; color: #1a1a1a; }
+  ::highlight(find-current) { background-color: var(--accent); color: #fff; }
 
-    .upload-icon {
-      font-size: 48px;
-      color: #94a3b8;
-      margin-bottom: 15px;
-    }
+  /* AI bubble */
+  .ai-bubble {
+    position: absolute;
+    background: var(--ink); color: var(--cream);
+    padding: 5px;
+    display: flex; align-items: center; gap: 2px;
+    border-radius: 4px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    z-index: 70;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .ai-bubble.visible { opacity: 1; pointer-events: auto; }
+  .ai-bubble button {
+    background: transparent; color: var(--cream);
+    border: 0; padding: 7px 10px;
+    font: 10px/1 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    cursor: pointer; border-radius: 2px;
+  }
+  .ai-bubble button:hover { background: rgba(255,255,255,0.12); color: var(--cream); }
+  .ai-bubble .sep {
+    width: 1px; height: 14px;
+    background: rgba(255,255,255,0.18);
+    margin: 0 2px;
+  }
+  .ai-bubble.loading { opacity: 0.7; }
+  .ai-bubble.loading button { pointer-events: none; }
+  .ai-bubble select {
+    background: transparent; color: var(--cream); border: 0;
+    font: 10px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    cursor: pointer; padding: 7px 6px; outline: none;
+  }
+  .ai-bubble select option { color: var(--ink); background: var(--cream); }
+  .ai-bubble .icon-ai {
+    font: italic 700 12px 'Fraunces', serif;
+    color: var(--accent);
+    padding: 0 8px 0 6px;
+    border-right: 1px solid rgba(255,255,255,0.18);
+    margin-right: 2px;
+  }
+  .ai-bubble .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin: 0 10px;
+    display: none;
+  }
+  .ai-bubble.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    .upload-text {
-      color: #64748b;
-      margin-bottom: 10px;
-    }
+  /* AI custom prompt popover */
+  .ai-custom {
+    position: absolute;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    box-shadow: 0 12px 32px -8px rgba(23,20,15,0.22);
+    padding: 10px;
+    z-index: 71;
+    width: 320px;
+    transform: translateX(-50%);
+    display: none;
+  }
+  .ai-custom.visible { display: block; }
+  .ai-custom input {
+    width: 100%; padding: 8px 10px;
+    font: 14px/1.4 'Source Serif 4', serif;
+    border: 1px solid var(--rule);
+    background: var(--cream); outline: none;
+  }
+  .ai-custom input:focus { border-color: var(--accent); background: #fff; }
+  .ai-custom .hint {
+    font: 9px 'JetBrains Mono', monospace;
+    color: var(--ink-3);
+    letter-spacing: 0.14em; text-transform: uppercase;
+    margin-top: 6px;
+  }
 
-    .upload-hint {
-      color: #94a3b8;
-      font-size: 14px;
-    }
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ink); color: var(--cream);
+    padding: 14px 22px;
+    font: 12px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    opacity: 0; pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.2,0.8,0.2,1);
+    z-index: 100;
+    border: 1px solid var(--accent);
+    max-width: calc(100% - 40px); text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: #e85a3c; }
 
-    #fileInput {
-      display: none;
-    }
+  .hidden { display: none !important; }
 
-    .editor-toolbar {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 15px;
-      flex-wrap: wrap;
-    }
+  /* ————— Sidebar ————— */
+  .sidebar {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: 280px;
+    background: linear-gradient(to bottom right, var(--cream-2), var(--cream));
+    border-right: 1px solid var(--rule);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+  }
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 4px 0 32px -8px rgba(23, 20, 15, 0.14);
+  }
+  .sidebar-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 28px 22px 18px;
+    border-bottom: 1px solid var(--rule);
+    flex-shrink: 0;
+  }
+  .sidebar-title {
+    font: 600 24px/1 'Fraunces', serif;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+  .sidebar-title em {
+    font-style: italic; color: var(--accent); font-weight: 600;
+  }
+  .sidebar-close {
+    background: transparent; border: 0;
+    padding: 4px 10px;
+    font: 300 22px/1 sans-serif; letter-spacing: 0;
+    color: var(--ink-3); cursor: pointer;
+  }
+  .sidebar-close:hover { color: var(--accent); background: transparent; }
 
-    .btn {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
+  .sidebar-list {
+    flex: 1; overflow-y: auto;
+    padding: 4px 0;
+  }
+  .sidebar-list::-webkit-scrollbar { width: 6px; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--rule-2); border-radius: 3px; }
 
-    .btn-primary {
-      background: #2563eb;
-      color: white;
-    }
+  .story-link {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 10px;
+    padding: 14px 22px;
+    text-decoration: none;
+    color: var(--ink-2);
+    border-bottom: 1px solid rgba(210, 198, 172, 0.45);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s, color 0.15s;
+  }
+  .story-link:hover {
+    background: rgba(192, 56, 30, 0.05);
+    color: var(--ink);
+  }
+  .story-link.active { background: var(--paper); }
+  .story-link.active::before {
+    content: ""; position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--accent);
+  }
+  .story-link .num {
+    font: italic 600 22px/1.1 'Fraunces', serif;
+    color: var(--accent);
+    padding-top: 1px;
+  }
+  .story-link .info { min-width: 0; }
+  .story-link .pstyle {
+    font: 500 9px/1.2 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--accent-2);
+    display: inline-block;
+    margin-bottom: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 100%;
+  }
+  .story-link .page-ref {
+    font: 500 9px/1.2 'JetBrains Mono', monospace;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    background: rgba(131, 124, 109, 0.12);
+    padding: 2px 6px;
+    border-radius: 2px;
+    margin-left: 6px;
+    vertical-align: 1px;
+  }
+  .story-link.active .page-ref {
+    color: var(--accent);
+    background: var(--label-bg);
+  }
+  .story-link .snippet {
+    font: 13px/1.45 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    color: var(--ink-2);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .story-link.active .snippet { color: var(--ink); }
 
-    .btn-primary:hover {
-      background: #1d4ed8;
+  .sidebar-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(23, 20, 15, 0.35);
+    z-index: 44;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.22s;
+  }
+  @media (max-width: 899px) {
+    body.sidebar-open .sidebar-backdrop {
+      opacity: 1; pointer-events: auto;
     }
+  }
 
-    .btn-success {
-      background: #10b981;
-      color: white;
-    }
+  button.icon-only { padding: 10px 12px; }
+  button.icon-only svg { display: block; }
 
-    .btn-success:hover {
-      background: #059669;
-    }
+  /* ————— Pages view ————— */
+  #pages { padding: 4px 0 40px; }
+  #pages.hidden { display: none; }
+  .spread-card {
+    margin: 0 auto 36px;
+    animation: rise 0.45s cubic-bezier(0.2,0.8,0.2,1) both;
+  }
+  .spread-card:last-child { margin-bottom: 0; }
+  .spread-meta {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 0 8px 12px;
+    font: 10px/1 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-3);
+  }
+  .spread-meta .pages {
+    font: italic 600 22px/1 'Fraunces', serif;
+    color: var(--accent);
+    letter-spacing: -0.015em;
+    text-transform: none;
+  }
+  .spread-svg-wrap {
+    background: var(--cream-2);
+    border: 1px solid var(--rule);
+    padding: 36px 28px;
+    display: flex; justify-content: center;
+    box-shadow: inset 0 1px 3px rgba(23,20,15,0.05);
+  }
+  .spread-svg {
+    max-width: 100%; height: auto; display: block;
+    filter: drop-shadow(0 2px 10px rgba(23,20,15,0.10));
+  }
+  .spread-svg .page-rect {
+    fill: var(--paper);
+    stroke: var(--rule);
+    stroke-width: 0.5;
+  }
+  .spread-svg .page-num-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    font-weight: 500;
+    fill: var(--ink-3);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    user-select: none;
+  }
+  .spread-svg .frame-rect {
+    fill: var(--label-bg);
+    stroke: var(--accent);
+    stroke-opacity: 0.35;
+    stroke-width: 0.6;
+    cursor: pointer;
+    transition: fill 0.15s, stroke-opacity 0.15s, stroke-width 0.15s;
+  }
+  .spread-svg .frame:hover .frame-rect {
+    fill: var(--label-bg-hover);
+    stroke-opacity: 1;
+    stroke-width: 1.2;
+  }
+  .spread-svg .frame.active .frame-rect {
+    fill: var(--label-bg-hover);
+    stroke-opacity: 1;
+    stroke-width: 1.8;
+  }
+  .spread-svg .frame.active .frame-num {
+    font-size: 12pt;
+  }
+  .spread-card.has-active {
+    position: relative;
+  }
+  .spread-card.has-active .spread-meta .pages {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+  }
+  .paper.flash-target {
+    animation: flashTarget 1.2s ease-out;
+  }
+  @keyframes flashTarget {
+    0%   { box-shadow: 0 0 0 0 rgba(192, 56, 30, 0), var(--paper-shadow); }
+    15%  { box-shadow: 0 0 0 4px rgba(192, 56, 30, 0.55), var(--paper-shadow); }
+    100% { box-shadow: 0 0 0 0 rgba(192, 56, 30, 0), var(--paper-shadow); }
+  }
+  .spread-svg .frame-num {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 10pt;
+    fill: var(--accent);
+    text-anchor: start;
+    pointer-events: none;
+    user-select: none;
+  }
+  .frame-text {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 7pt;
+    line-height: 1.25;
+    color: var(--ink);
+    overflow: hidden;
+    padding: 4pt 5pt 8pt;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    box-sizing: border-box;
+    width: 100%; height: 100%;
+    user-select: none;
+    pointer-events: none;
+    position: relative;
+  }
+  .frame-text .b { font-weight: 700; }
+  .frame-text .i { font-style: italic; }
+  .frame-text .fr-p { margin: 0 0 2pt; }
+  .frame-text .fr-p:last-child { margin-bottom: 0; }
+  .frame-text::after {
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: 0; height: 10pt;
+    background: linear-gradient(to bottom, transparent, var(--paper));
+    pointer-events: none;
+  }
+  .pages-empty {
+    padding: 80px 40px; text-align: center;
+    font: italic 600 24px 'Fraunces', serif;
+    color: var(--ink-3);
+  }
 
-    .btn-secondary {
-      background: #64748b;
-      color: white;
-    }
+  footer {
+    max-width: 1100px; margin: 0 auto;
+    padding: 20px 36px 40px;
+    border-top: 1px solid var(--rule);
+    font: 10px 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--ink-3);
+    display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  footer .accent { color: var(--accent); }
 
-    .btn-secondary:hover {
-      background: #475569;
-    }
-
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    #markdownEditor {
-      width: 100%;
-      min-height: 400px;
-      padding: 15px;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-      font-size: 14px;
-      line-height: 1.6;
-      resize: vertical;
-    }
-
-    #markdownEditor:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-    }
-
-    .status {
-      padding: 10px 15px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-      font-size: 14px;
-    }
-
-    .status.success {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .status.error {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .status.info {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-
-    .metadata {
-      background: #f8f9fa;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-      font-size: 14px;
-    }
-
-    .metadata-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 5px 0;
-      border-bottom: 1px solid #e9ecef;
-    }
-
-    .metadata-item:last-child {
-      border-bottom: none;
-    }
-
-    .loading {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 2px solid #f3f3f3;
-      border-top: 2px solid #2563eb;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    .demo-banner {
-      background: #fef3c7;
-      color: #92400e;
-      padding: 15px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border-left: 4px solid #f59e0b;
-    }
-
-    footer {
-      text-align: center;
-      padding: 30px;
-      color: #666;
-      font-size: 14px;
-    }
-  </style>
+  @media (max-width: 620px) {
+    .masthead { padding: 28px 20px 18px; flex-direction: column; align-items: flex-start; gap: 8px; }
+    .masthead .meta { text-align: left; }
+    .tag-row { padding: 10px 20px; font-size: 10px; }
+    .toolbar { padding: 12px 20px; flex-wrap: wrap; gap: 10px; }
+    .toolbar .filename { font-size: 17px; }
+    main { padding: 24px 16px 60px; }
+    .drop { padding: 48px 20px; }
+    .drop .big { font-size: 26px; }
+    .find-panel { right: 16px; left: 16px; width: auto; top: 100px; }
+    footer { padding: 16px 20px 28px; flex-direction: column; }
+  }
+</style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>📄 IDML ↔ Markdown Converter</h1>
-      <p class="subtitle">Convert InDesign IDML files to Markdown for text editing, then convert back with all formatting preserved</p>
-    </header>
 
-    <div class="demo-banner">
-      <strong>💡 Client-Side Demo:</strong> This version runs entirely in your browser. Your files are never uploaded to any server.
-    </div>
-
-    <div class="main-panel">
-      <!-- Upload Panel -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Step 1: Upload IDML File</span>
-        </div>
-        <div class="panel-content">
-          <div id="uploadArea" class="upload-area">
-            <div class="upload-icon">📁</div>
-            <div class="upload-text">Drop your IDML file here or click to browse</div>
-            <div class="upload-hint">Supports .idml files (up to 50MB)</div>
-          </div>
-          <input type="file" id="fileInput" accept=".idml,application/zip">
-
-          <div id="uploadStatus" class="status hidden"></div>
-
-          <div id="metadata" class="metadata hidden">
-            <div class="metadata-item">
-              <span>Stories:</span>
-              <span id="storyCount">-</span>
-            </div>
-            <div class="metadata-item">
-              <span>Spreads:</span>
-              <span id="spreadCount">-</span>
-            </div>
-            <div class="metadata-item">
-              <span>Styles:</span>
-              <span id="styleCount">-</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Editor Panel -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Step 2: Edit & Convert Back</span>
-        </div>
-        <div class="panel-content">
-          <div class="editor-toolbar">
-            <button id="downloadBtn" class="btn btn-success" disabled>
-              ⬇️ Download Converted IDML
-            </button>
-            <button id="copyBtn" class="btn btn-secondary" disabled>
-              📋 Copy Markdown
-            </button>
-          </div>
-
-          <textarea id="markdownEditor" placeholder="Your converted Markdown will appear here. Edit the text as needed, then click 'Download Converted IDML'..." readonly></textarea>
-
-          <div id="editorStatus" class="status hidden"></div>
-        </div>
-      </div>
-    </div>
-
-    <footer>
-      <p>Built for client-side conversion. No server required.</p>
-    </footer>
+<header class="masthead">
+  <h1>IDML <em>Editor</em></h1>
+  <div class="meta">
+    Vol. II &nbsp;·&nbsp; <strong>Text · Console</strong><br>
+    <span id="todayDate"></span>
   </div>
+</header>
 
-  <script>
-    // Client-side IDML Converter Classes
-    class IDMLParser {
-      constructor() {
-        this.stories = new Map();
-        this.spreads = [];
-        this.styles = new Map();
-        this.designmap = null;
-        this.zipCache = null;
+<div class="tag-row">
+  <span><span class="dot">●</span> Browser-only · no upload</span>
+  <span>·</span>
+  <span>Styles rendered · find + replace · AI rewrite</span>
+  <span>·</span>
+  <span>Export as .idml</span>
+</div>
+
+<aside class="sidebar" id="sidebar" aria-label="Stories">
+  <div class="sidebar-head">
+    <span class="sidebar-title">Stor<em>ies</em></span>
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar" title="Close">×</button>
+  </div>
+  <div class="sidebar-list" id="sidebarList"></div>
+</aside>
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+<div class="toolbar-wrap hidden" id="toolbarWrap">
+  <div class="toolbar">
+    <div class="file-info">
+      <div class="filename" id="fileName">—</div>
+      <div class="stats" id="fileStats">—</div>
+    </div>
+    <div class="btn-row">
+      <button class="ghost icon-only" id="sidebarToggle" title="Toggle stories sidebar (⌘\)" aria-label="Toggle stories">
+        <svg width="14" height="11" viewBox="0 0 14 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M1 1.5h12M1 5.5h12M1 9.5h12"/>
+        </svg>
+      </button>
+      <button class="ghost icon-only" id="themeBtn" title="Cycle theme (⌘K)" aria-label="Change theme">◐</button>
+      <button class="ghost" id="viewToggle" title="Toggle text / pages view (⌘P)">Pages</button>
+      <button class="ghost" id="findBtn" title="Find &amp; Replace (⌘F)">Find</button>
+      <button class="ghost" id="resetBtn" title="Load a different file">New File</button>
+      <button id="saveBtn" class="primary">Save .idml</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <section id="dropSection">
+    <label class="drop" id="drop">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+      <div class="big">Drop an .idml file here</div>
+      <div class="small">— or click to choose —</div>
+      <input id="fileInput" type="file" accept=".idml,application/vnd.adobe.indesign-idml-package">
+    </label>
+  </section>
+
+  <section id="editorSection" class="hidden">
+    <div id="stories"></div>
+    <div id="pages" class="hidden"></div>
+  </section>
+</main>
+
+<!-- Find & Replace panel -->
+<div class="find-panel" id="findPanel">
+  <button class="close" id="findClose" aria-label="Close">×</button>
+  <div class="row">
+    <input type="text" id="findInput" placeholder="Find in document…" autocomplete="off">
+    <div class="count" id="findCount">—</div>
+  </div>
+  <div class="row">
+    <input type="text" id="replaceInput" placeholder="Replace with…" autocomplete="off">
+  </div>
+  <div class="controls">
+    <div class="opts">
+      <label><input type="checkbox" id="caseOpt"> Case</label>
+      <label><input type="checkbox" id="wholeOpt"> Word</label>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button class="small ghost" id="prevBtn">↑</button>
+      <button class="small ghost" id="nextBtn">↓</button>
+      <button class="small ghost" id="replaceOneBtn">Replace</button>
+      <button class="small" id="replaceAllBtn">All</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI bubble -->
+<div class="ai-bubble" id="aiBubble">
+  <span class="icon-ai">ℳ</span>
+  <button data-action="shorten">Shorten</button>
+  <button data-action="polish">Polish</button>
+  <div class="sep"></div>
+  <select id="aiTranslate" title="Translate to…">
+    <option value="">Translate…</option>
+    <option value="English">English</option>
+    <option value="Spanish">Spanish</option>
+    <option value="French">French</option>
+    <option value="German">German</option>
+    <option value="Italian">Italian</option>
+    <option value="Portuguese">Portuguese</option>
+    <option value="Dutch">Dutch</option>
+    <option value="Japanese">Japanese</option>
+    <option value="Chinese (Simplified)">Chinese</option>
+    <option value="Korean">Korean</option>
+    <option value="Arabic">Arabic</option>
+  </select>
+  <div class="sep"></div>
+  <button id="aiCustomBtn">Ask…</button>
+  <span class="spinner"></span>
+</div>
+
+<!-- AI custom prompt -->
+<div class="ai-custom" id="aiCustom">
+  <input type="text" id="aiPromptInput" placeholder="Rewrite as…  e.g. 'more concise', 'in a warm tone'" autocomplete="off">
+  <div class="hint">↵ to apply · esc to cancel</div>
+</div>
+
+<footer>
+  <span>IDML <span class="accent">§</span> Text Editor</span>
+  <span>⌘P pages · ⌘F find · ⌘\ sidebar · ⌘K theme · ⌘Z undo · ⌘S save</span>
+</footer>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════════════════
+const state = {
+  zip: null,
+  originalName: '',
+  fileSize: 0,
+  stories: [],
+  spreads: [],
+  viewMode: 'text',     // 'text' | 'pages'
+  dirty: false,
+  styleMap: new Map(),  // styleId → { name, fontStyle, fillColor, basedOn, isParagraph }
+  colorMap: new Map(),  // colorId → { r, g, b }
+  history: [],          // Array<Snapshot> where Snapshot = { [stableKey]: text }
+  historyIdx: -1,
+  HISTORY_MAX: 100,
+};
+let cidCounter = 0;
+let historyTimer = null;
+let autoSaveTimer = null;
+
+// Search state
+const search = {
+  query: '',
+  matches: [],       // [{ span, start, end }]
+  currentIdx: -1,
+  caseSensitive: false,
+  wholeWord: false,
+  hitH: null,
+  curH: null,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+function showToast(msg, isError = false, ms = 2600) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function setTodayDate() {
+  const d = new Date();
+  $('#todayDate').textContent = d.toLocaleDateString('en-US',
+    { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase();
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function stripBomAndDecl(text) {
+  text = text.replace(/^\uFEFF/, '');
+  const declMatch = text.match(/^<\?xml[^?]*\?>\s*/);
+  const declaration = declMatch
+    ? declMatch[0].replace(/\s+$/, '')
+    : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  if (declMatch) text = text.slice(declMatch[0].length);
+  return { text, declaration };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Style + Color parsing (Resources/Graphic.xml + Resources/Styles.xml)
+// ═══════════════════════════════════════════════════════════════════════════
+async function parseResources(zip) {
+  const styleMap = new Map();
+  const colorMap = new Map();
+
+  // Colors live in Resources/Graphic.xml (sometimes just Graphics.xml — rare)
+  const graphicFile = zip.file('Resources/Graphic.xml') || zip.file('Resources/Graphics.xml');
+  if (graphicFile) {
+    try {
+      const { text } = stripBomAndDecl(await graphicFile.async('text'));
+      const doc = new DOMParser().parseFromString(text, 'text/xml');
+      for (const color of doc.getElementsByTagName('Color')) {
+        const self = color.getAttribute('Self');
+        const space = color.getAttribute('Space') || '';
+        const values = (color.getAttribute('ColorValue') || '').trim().split(/\s+/).map(parseFloat);
+        let rgb = null;
+        if (space === 'CMYK' && values.length >= 4) {
+          const [c, m, y, k] = values;
+          rgb = {
+            r: Math.round(255 * (1 - c/100) * (1 - k/100)),
+            g: Math.round(255 * (1 - m/100) * (1 - k/100)),
+            b: Math.round(255 * (1 - y/100) * (1 - k/100)),
+          };
+        } else if (space === 'RGB' && values.length >= 3) {
+          rgb = { r: Math.round(values[0]), g: Math.round(values[1]), b: Math.round(values[2]) };
+        } else if (space === 'LAB' && values.length >= 3) {
+          // very rough LAB → sRGB (luminance-only fallback)
+          const L = Math.max(0, Math.min(100, values[0]));
+          const g = Math.round(255 * L / 100);
+          rgb = { r: g, g: g, b: g };
+        }
+        if (rgb && self) colorMap.set(self, rgb);
       }
+    } catch (e) { console.warn('Color parse failed:', e); }
+  }
 
-      async parse(arrayBuffer) {
-        this.zipCache = await JSZip.loadAsync(arrayBuffer);
-
-        // Parse designmap.xml
-        const designmapFile = this.zipCache.file('designmap.xml');
-        if (designmapFile) {
-          const content = await designmapFile.async('string');
-          this.designmap = this.parseXML(content);
+  // Styles
+  const stylesFile = zip.file('Resources/Styles.xml');
+  if (stylesFile) {
+    try {
+      const { text } = stripBomAndDecl(await stylesFile.async('text'));
+      const doc = new DOMParser().parseFromString(text, 'text/xml');
+      for (const tag of ['CharacterStyle', 'ParagraphStyle']) {
+        for (const s of doc.getElementsByTagName(tag)) {
+          const self = s.getAttribute('Self');
+          if (!self) continue;
+          styleMap.set(self, {
+            name: s.getAttribute('Name') || null,
+            fontStyle: s.getAttribute('FontStyle') || null,
+            fillColor: s.getAttribute('FillColor') || null,
+            basedOn: s.getAttribute('BasedOn') || null,
+            isParagraph: tag === 'ParagraphStyle',
+          });
         }
-
-        // Parse Stories
-        const storyFiles = this.zipCache.file(/^Stories\/.*\.xml$/);
-        this.stories = new Map();
-        for (const file of storyFiles) {
-          const content = await file.async('string');
-          const xml = this.parseXML(content);
-          // Get Self from attributes
-          const storySelf = xml.$?.Self || xml.id || file.name;
-          this.stories.set(storySelf, { xml, originalContent: content });
-        }
-
-        // Count spreads and styles
-        const spreadFiles = this.zipCache.file(/^Spreads\/.*\.xml$/);
-        const stylesFile = this.zipCache.file('Resources/Styles.xml');
-
-        return {
-          stories: this.stories,
-          spreadsCount: spreadFiles.length,
-          hasStyles: !!stylesFile,
-          designmap: this.designmap,
-          zip: this.zipCache
-        };
       }
+    } catch (e) { console.warn('Style parse failed:', e); }
+  }
 
-      parseXML(content) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(content, 'text/xml');
+  return { styleMap, colorMap };
+}
 
-        // Debug: test how parser handles whitespace vs raw XML
-        const testEl = xmlDoc.getElementsByTagName('Content')[0];
-        if (testEl) {
-          console.log('DOMParser test - Content textContent length:', testEl.textContent.length);
-          console.log('DOMParser test - Content textContent (JSON):', JSON.stringify(testEl.textContent));
-          console.log('DOMParser test - Content outerHTML:', testEl.outerHTML);
-        }
+// Resolve a style through its BasedOn chain to get effective attributes
+function resolveStyle(styleId, styleMap, seen = new Set()) {
+  if (!styleId || seen.has(styleId) || !styleMap.has(styleId)) return {};
+  seen.add(styleId);
+  const s = styleMap.get(styleId);
+  const parent = resolveStyle(s.basedOn, styleMap, seen);
+  return {
+    fontStyle: s.fontStyle || parent.fontStyle || null,
+    fillColor: s.fillColor || parent.fillColor || null,
+    name: s.name || parent.name || null,
+  };
+}
 
-        // Also test raw XML for comparison
-        const contentMatch = content.match(/<Content[^>]*>([^<]+)<\/Content>/);
-        if (contentMatch) {
-          console.log('Raw XML Content:', JSON.stringify(contentMatch[1]));
-          console.log('Raw XML length:', contentMatch[1].length);
-        }
+// Given a CharacterStyleRange element, compute the effective visual style
+// by layering: paragraph style → character style → inline overrides.
+function effectiveStyle(csr, psr) {
+  const paraStyleId  = psr?.getAttribute('AppliedParagraphStyle');
+  const charStyleId  = csr?.getAttribute('AppliedCharacterStyle');
+  const paraResolved = resolveStyle(paraStyleId, state.styleMap);
+  const charResolved = resolveStyle(charStyleId, state.styleMap);
+  const inlineFs = csr?.getAttribute('FontStyle');
+  const inlineFc = csr?.getAttribute('FillColor');
+  const fontStyle = inlineFs || charResolved.fontStyle || paraResolved.fontStyle || '';
+  const fillColor = inlineFc || charResolved.fillColor || paraResolved.fillColor || '';
+  const fs = fontStyle.toLowerCase();
+  const out = {
+    bold: /bold|black|heavy|ultra/.test(fs),
+    italic: /italic|oblique/.test(fs),
+    color: null,
+  };
+  if (fillColor && state.colorMap.has(fillColor)) {
+    const c = state.colorMap.get(fillColor);
+    // Don't mark pure black as a "color" — it's the default
+    if (!(c.r === 0 && c.g === 0 && c.b === 0)) {
+      out.color = `rgb(${c.r},${c.g},${c.b})`;
+    }
+  }
+  return out;
+}
 
-        return this.xmlToObj(xmlDoc.documentElement);
-      }
+// Turn "ParagraphStyle/$ID/NormalParagraphStyle" into "Normal", or use Name
+function displayStyleName(styleId, styleMap) {
+  if (!styleId) return '';
+  const obj = styleMap.get(styleId);
+  if (obj && obj.name) {
+    return obj.name.replace(/^\$ID\//, '').replace(/^\[|\]$/g, '');
+  }
+  const last = (styleId.split('/').pop() || '').replace(/^\$ID\//, '');
+  return last.replace(/ParagraphStyle$/, '').replace(/^\[|\]$/g, '');
+}
 
-      xmlToObj(element) {
-        if (!element) return null;
+// Convert IDML language id to BCP-47-ish code
+function langFromId(langId) {
+  if (!langId) return '';
+  const m = langId.match(/([a-zA-Z]{2,3})(?:[_-]([A-Z]{2}))?$/);
+  if (!m) return '';
+  return m[2] ? `${m[1].toLowerCase()}-${m[2]}` : m[1].toLowerCase();
+}
 
-        const obj = {};
+// ─── Geometry helpers for page rendering ──────────────────────────────────
+function parseTransform(str) {
+  if (!str) return { a:1, b:0, c:0, d:1, tx:0, ty:0 };
+  const p = str.trim().split(/\s+/).map(parseFloat);
+  return {
+    a: isFinite(p[0]) ? p[0] : 1, b: isFinite(p[1]) ? p[1] : 0,
+    c: isFinite(p[2]) ? p[2] : 0, d: isFinite(p[3]) ? p[3] : 1,
+    tx: isFinite(p[4]) ? p[4] : 0, ty: isFinite(p[5]) ? p[5] : 0,
+  };
+}
+function applyTransform(t, x, y) {
+  return { x: t.a*x + t.c*y + t.tx, y: t.b*x + t.d*y + t.ty };
+}
+// Compose as  result · v = a · (b · v)  (b applied first, then a)
+function composeTransforms(a, b) {
+  return {
+    a: a.a*b.a + a.c*b.b, b: a.b*b.a + a.d*b.b,
+    c: a.a*b.c + a.c*b.d, d: a.b*b.c + a.d*b.d,
+    tx: a.a*b.tx + a.c*b.ty + a.tx,
+    ty: a.b*b.tx + a.d*b.ty + a.ty,
+  };
+}
+function parseGeomBounds(str) {
+  // IDML convention: "top left bottom right" = y1 x1 y2 x2
+  if (!str) return null;
+  const p = str.trim().split(/\s+/).map(parseFloat);
+  if (p.length < 4 || p.some(n => !isFinite(n))) return null;
+  return { x1: p[1], y1: p[0], x2: p[3], y2: p[2] };
+}
+function boundsFromPath(el) {
+  const pts = [...el.getElementsByTagName('PathPointType')];
+  const xs = [], ys = [];
+  for (const p of pts) {
+    const a = p.getAttribute('Anchor');
+    if (!a) continue;
+    const [x, y] = a.trim().split(/\s+/).map(parseFloat);
+    if (isFinite(x) && isFinite(y)) { xs.push(x); ys.push(y); }
+  }
+  if (!xs.length) return null;
+  return { x1: Math.min(...xs), y1: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys) };
+}
+function getItemBounds(el) {
+  return parseGeomBounds(el.getAttribute('GeometricBounds')) || boundsFromPath(el);
+}
+function transformBounds(b, t) {
+  if (!b) return null;
+  const c = [
+    applyTransform(t, b.x1, b.y1), applyTransform(t, b.x2, b.y1),
+    applyTransform(t, b.x1, b.y2), applyTransform(t, b.x2, b.y2),
+  ];
+  const xs = c.map(p => p.x), ys = c.map(p => p.y);
+  return { x1: Math.min(...xs), y1: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys) };
+}
+function unionBounds(list) {
+  const v = list.filter(Boolean);
+  if (!v.length) return null;
+  return {
+    x1: Math.min(...v.map(b => b.x1)), y1: Math.min(...v.map(b => b.y1)),
+    x2: Math.max(...v.map(b => b.x2)), y2: Math.max(...v.map(b => b.y2)),
+  };
+}
 
-        // Handle attributes
-        if (element.attributes && element.attributes.length > 0) {
-          obj.$ = {};
-          for (const attr of element.attributes) {
-            obj.$[attr.name] = attr.value;
-          }
-        }
+// Parse designmap.xml + each Spread. Returns spread geometry (for rendering)
+// plus a story-path→page-number map (for the sidebar badge).
+async function parseSpreads(zip) {
+  const spreads = [];
+  const storyToPage = new Map();
+  try {
+    const dmFile = zip.file('designmap.xml');
+    if (!dmFile) return { spreads, storyToPage };
+    const { text: dmText } = stripBomAndDecl(await dmFile.async('text'));
+    const dmDoc = new DOMParser().parseFromString(dmText, 'text/xml');
 
-        // Handle child elements
-        if (element.children && element.children.length > 0) {
-          for (const child of element.children) {
-            const tagName = child.tagName;
-            if (!obj[tagName]) {
-              obj[tagName] = [];
+    let spreadRefs = [...dmDoc.getElementsByTagName('idPkg:Spread')];
+    if (spreadRefs.length === 0) {
+      spreadRefs = [...dmDoc.getElementsByTagNameNS('*', 'Spread')]
+        .filter(e => e.hasAttribute('src'));
+    }
+    const spreadPaths = spreadRefs.map(s => s.getAttribute('src')).filter(Boolean);
+
+    let currentPage = 0;
+    for (const path of spreadPaths) {
+      const file = zip.file(path);
+      if (!file) continue;
+      try {
+        const { text } = stripBomAndDecl(await file.async('text'));
+        const doc = new DOMParser().parseFromString(text, 'text/xml');
+
+        const pageEls = [...doc.getElementsByTagName('Page')];
+        const pages = pageEls.map((p, i) => {
+          const local = getItemBounds(p);
+          const tx = parseTransform(p.getAttribute('ItemTransform'));
+          if (!local) return null;
+          return {
+            localBounds: local, transform: tx,
+            worldBounds: transformBounds(local, tx),
+            pageNumber: currentPage + i + 1,
+          };
+        }).filter(Boolean);
+
+        const frameEls = [...doc.getElementsByTagName('TextFrame')];
+        const frames = frameEls.map(f => {
+          const local = getItemBounds(f);
+          if (!local) return null;
+          // Compose transforms up the parent chain (handles groups & nested items)
+          let transform = parseTransform(f.getAttribute('ItemTransform'));
+          let parent = f.parentNode;
+          while (parent && parent.nodeType === 1) {
+            const tag = parent.tagName;
+            if (tag === 'Spread' || tag === 'idPkg:Spread') break;
+            if (parent.getAttribute) {
+              const pt = parent.getAttribute('ItemTransform');
+              if (pt) transform = composeTransforms(parseTransform(pt), transform);
             }
-            obj[tagName].push(this.xmlToObj(child));
+            parent = parent.parentNode;
           }
+          return {
+            localBounds: local, transform,
+            worldBounds: transformBounds(local, transform),
+            parentStory: f.getAttribute('ParentStory') || '',
+          };
+        }).filter(Boolean);
+
+        for (const fr of frames) {
+          if (!fr.parentStory) continue;
+          const sPath = `Stories/Story_${fr.parentStory}.xml`;
+          if (!storyToPage.has(sPath)) storyToPage.set(sPath, currentPage + 1);
         }
 
-        // Handle text content - DON'T TRIM! Preserve all spaces
-        if (element.textContent && element.children.length === 0) {
-          return element.textContent;  // Don't trim - preserve all whitespace!
-        }
+        const worldBounds = unionBounds(pages.map(p => p.worldBounds));
+        spreads.push({
+          path, pages, frames, worldBounds,
+          firstPage: currentPage + 1,
+        });
+        currentPage += Math.max(1, pages.length);
+      } catch (e) { console.warn('Spread parse failed:', path, e); }
+    }
+  } catch (e) { console.warn('Spreads parse failed:', e); }
+  return { spreads, storyToPage };
+}
 
-        // Simplify single-item arrays
-        for (const key in obj) {
-          if (key !== '$' && Array.isArray(obj[key]) && obj[key].length === 1) {
-            obj[key] = obj[key][0];
-          }
-        }
+// ═══════════════════════════════════════════════════════════════════════════
+//  Load IDML
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadIdml(file) {
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
 
-        return Object.keys(obj).filter(k => k !== '$').length === 0 ? (element.textContent || obj) : obj;
+    const mimetypeFile = zip.file('mimetype');
+    if (!mimetypeFile) throw new Error('Not a valid IDML file (missing mimetype).');
+    const mime = (await mimetypeFile.async('text')).trim();
+    if (!mime.includes('idml')) console.warn('Unexpected mimetype:', mime);
+
+    // Parse styles + colors first so we can render them on each span
+    const { styleMap, colorMap } = await parseResources(zip);
+    state.styleMap = styleMap;
+    state.colorMap = colorMap;
+
+    // Parse spread geometry (pages + text frames). Gives us the layout view
+    // and a story→page number map for the sidebar badge.
+    const { spreads, storyToPage } = await parseSpreads(zip);
+    state.spreads = spreads;
+
+    const storyPaths = Object.keys(zip.files)
+      .filter(p => /^Stories\/Story_.*\.xml$/.test(p)).sort();
+    if (storyPaths.length === 0) throw new Error('No Stories/ folder found in this IDML.');
+
+    const stories = [];
+    for (const path of storyPaths) {
+      const { text, declaration } = stripBomAndDecl(await zip.file(path).async('text'));
+      const doc = new DOMParser().parseFromString(text, 'text/xml');
+      if (doc.getElementsByTagName('parsererror').length) {
+        console.warn('XML parse error in', path); continue;
       }
+
+      // Detect language from the Story element or first PSR
+      const storyEl = doc.getElementsByTagName('Story')[0];
+      let lang = langFromId(storyEl?.getAttribute('AppliedLanguage'));
+
+      const blocks = [];
+      const psrNodes = [...doc.getElementsByTagName('ParagraphStyleRange')];
+      const seenContent = new Set();
+      let contentIdxInStory = 0;
+
+      for (const psr of psrNodes) {
+        const segments = [];
+        // Walk — collect content/br, remembering the CSR for style resolution
+        const walk = (node, currentCsr) => {
+          for (const child of Array.from(node.childNodes)) {
+            if (child.nodeType !== 1) continue;
+            const tag = child.tagName;
+            if (tag === 'Content') {
+              const style = effectiveStyle(currentCsr, psr);
+              segments.push({
+                kind: 'content', node: child,
+                cid: 'c_' + (++cidCounter),
+                stableKey: path + '#' + (contentIdxInStory++),
+                original: child.textContent,
+                style,
+              });
+              seenContent.add(child);
+            } else if (tag === 'Br') {
+              segments.push({ kind: 'br' });
+            } else if (tag === 'ParagraphStyleRange') {
+              continue; // siblings; handled by their own iteration
+            } else if (tag === 'CharacterStyleRange') {
+              walk(child, child);
+            } else {
+              walk(child, currentCsr);
+            }
+          }
+        };
+        walk(psr, null);
+        if (segments.some(s => s.kind === 'content')) {
+          const pStyleId = psr.getAttribute('AppliedParagraphStyle');
+          const pStyleName = displayStyleName(pStyleId, styleMap);
+          blocks.push({ psrNode: psr, segments, pStyleName });
+        }
+      }
+
+      // Orphan content (rare nesting — tables, anchored frames, etc.)
+      const orphans = [...doc.getElementsByTagName('Content')].filter(c => !seenContent.has(c));
+      if (orphans.length) {
+        blocks.push({
+          psrNode: null,
+          pStyleName: 'Other',
+          segments: orphans.map(node => ({
+            kind: 'content', node,
+            cid: 'c_' + (++cidCounter),
+            stableKey: path + '#' + (contentIdxInStory++),
+            original: node.textContent,
+            style: { bold: false, italic: false, color: null },
+          })),
+          orphan: true,
+        });
+      }
+
+      stories.push({ path, declaration, doc, blocks, lang, pageRef: storyToPage.get(path) });
     }
 
-    class IDMLToMarkdownConverter {
-      constructor() {
-        this.parser = new IDMLParser();
-        this.textMappings = new Map(); // Store text position mappings for round-trip
+    state.zip = zip;
+    state.originalName = file.name.replace(/\.idml$/i, '');
+    state.fileSize = file.size;
+    state.stories = stories;
+    state.dirty = false;
+
+    renderEditor();
+    showToast(`Loaded ${stories.length} stor${stories.length === 1 ? 'y' : 'ies'}`);
+  } catch (err) {
+    console.error(err);
+    showToast('Could not read file — ' + err.message, true);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Render
+// ═══════════════════════════════════════════════════════════════════════════
+function renderEditor() {
+  $('#dropSection').classList.add('hidden');
+  $('#editorSection').classList.remove('hidden');
+  $('#toolbarWrap').classList.remove('hidden');
+  $('#fileName').textContent = state.originalName + '.idml';
+
+  // Default to text view on every fresh load
+  state.viewMode = 'text';
+  $('#stories').classList.remove('hidden');
+  $('#pages').classList.add('hidden');
+  const vbBtn = $('#viewToggle');
+  if (vbBtn) vbBtn.textContent = 'Pages';
+
+  const container = $('#stories');
+  container.innerHTML = '';
+
+  state.stories.forEach((story, sIdx) => {
+    if (story.blocks.length === 0) return;
+
+    const paper = document.createElement('article');
+    paper.className = 'paper';
+    paper.setAttribute('data-paper-idx', sIdx);
+    paper.style.animationDelay = Math.min(sIdx * 0.04, 0.24) + 's';
+
+    const runCount = story.blocks.reduce(
+      (n, b) => n + b.segments.filter(s => s.kind === 'content').length, 0);
+
+    const head = document.createElement('div');
+    head.className = 'paper-head';
+    const shortPath = story.path.replace('Stories/', '').replace(/\.xml$/, '');
+    head.innerHTML = `
+      <div class="title">
+        <span class="num">${String(sIdx + 1).padStart(2, '0')}</span>
+        <span class="label">${escapeHtml(shortPath)}</span>
+      </div>
+      <div class="meta" data-story-meta="${sIdx}">${story.blocks.length} ¶ · ${runCount} runs</div>
+    `;
+    paper.appendChild(head);
+
+    const docEl = document.createElement('div');
+    docEl.className = 'doc';
+    docEl.contentEditable = 'true';
+    docEl.spellcheck = true;
+    if (story.lang) docEl.setAttribute('lang', story.lang);
+    docEl.setAttribute('data-story-idx', sIdx);
+
+    story.blocks.forEach((block, bIdx) => {
+      const pEl = document.createElement('div');
+      pEl.className = 'para';
+      pEl.setAttribute('data-block', bIdx);
+
+      if (block.pStyleName) {
+        const labelEl = document.createElement('span');
+        labelEl.className = 'para-label';
+        labelEl.setAttribute('contenteditable', 'false');
+        labelEl.textContent = block.pStyleName;
+        labelEl.title = 'Paragraph style: ' + block.pStyleName;
+        pEl.appendChild(labelEl);
       }
 
-      async convert(arrayBuffer) {
-        const result = await this.parser.parse(arrayBuffer);
-        const markdown = this.buildMarkdown(result);
-
-        return {
-          markdown,
-          metadata: {
-            stories: result.stories.size,
-            spreads: result.spreadsCount,
-            styles: result.hasStyles ? 1 : 0
-          },
-          parsedData: result,
-          textMappings: this.textMappings // Store for round-trip
-        };
+      let origLen = 0;
+      for (const seg of block.segments) {
+        if (seg.kind === 'content') {
+          const span = document.createElement('span');
+          span.setAttribute('data-cid', seg.cid);
+          span.textContent = seg.original;
+          origLen += seg.original.length;
+          if (seg.style.bold)   span.classList.add('is-bold');
+          if (seg.style.italic) span.classList.add('is-italic');
+          if (seg.style.color)  span.style.color = seg.style.color;
+          pEl.appendChild(span);
+        } else if (seg.kind === 'br') {
+          pEl.appendChild(document.createElement('br'));
+        }
       }
+      pEl.setAttribute('data-orig-len', origLen);
+      updateParaCount(pEl);
 
-      buildMarkdown(data) {
-        let markdown = '';
-        let storyIndex = 1;
-        this.textMappings = new Map(); // Reset mappings
-
-        console.log('Building markdown from', data.stories.size, 'stories');
-
-        for (const [storySelf, storyData] of data.stories) {
-          const story = storyData.xml;
-          const storyName = story.$?.Self || `Story ${storyIndex}`;
-
-          console.log('Processing story:', storyName, 'Keys:', Object.keys(story).filter(k => k !== '$'));
-
-          const paragraphs = this.extractParagraphs(story, storySelf); // Pass storySelf for mapping
-
-          console.log('Extracted paragraphs:', paragraphs.length, 'from', storyName);
-
-          if (paragraphs.length > 0) {
-            markdown += `# ${storyName}\n\n`;
-            for (const para of paragraphs) {
-              markdown += para.text + '\n\n'; // Use .text to get just the markdown text
-            }
-          }
-
-          storyIndex++;
-        }
-
-        console.log('Final markdown length:', markdown.length);
-
-        return markdown.trim();
+      if (!pEl.textContent.trim() && !pEl.querySelector('br')) {
+        pEl.appendChild(document.createElement('br'));
       }
+      docEl.appendChild(pEl);
+    });
 
-      extractParagraphs(story, storySelf) {
-        const paragraphs = [];
-        const storyMappings = []; // Store mappings for this story
+    docEl.addEventListener('input', () => onDocInput(docEl, story, sIdx));
 
-        // Helper to extract text from Content element - preserves ALL spaces
-        const extractContent = (content) => {
-          if (content === null || content === undefined) return '';
-          if (typeof content === 'string') return content;  // Return string exactly, including spaces
-          if (Array.isArray(content)) {
-            // Join array elements preserving content exactly
-            return content.map(extractContent).join('');
-          }
-          if (typeof content === 'object') {
-            // Check for text content properties - preserve exact content
-            if (content._ !== undefined) return content._;
-            if (content['#text'] !== undefined) return content['#text'];
-            if (content.textContent !== undefined) return content.textContent;
-            if (content.text !== undefined) return content.text;
-
-            // Recursively check all properties, maintaining order
-            let text = '';
-            for (const key of Object.keys(content)) {
-              if (key !== '$' && key !== 'Self' && key !== 'AppliedCharacterStyle' && key !== 'AppliedParagraphStyle') {
-                const value = content[key];
-                text += extractContent(value);
-              }
-            }
-            return text;
-          }
-          return '';
-        };
-
-        // Handle different story structures
-        const storyContent = story.Story || story['idPkg:Story'] || story;
-
-        // Get ParagraphStyleRange
-        let paraRanges = [];
-        if (storyContent.ParagraphStyleRange) {
-          paraRanges = Array.isArray(storyContent.ParagraphStyleRange)
-            ? storyContent.ParagraphStyleRange
-            : [storyContent.ParagraphStyleRange];
-        }
-
-        for (const range of paraRanges) {
-          let text = '';
-          let markdownText = ''; // Will include markdown formatting
-
-          // Look for CharacterStyleRange - preserve exact content including ALL spaces
-          if (range.CharacterStyleRange) {
-            const charRanges = Array.isArray(range.CharacterStyleRange)
-              ? range.CharacterStyleRange
-              : [range.CharacterStyleRange];
-
-            for (const charRange of charRanges) {
-              // Debug: log the full structure of the first few charRanges
-              if (paragraphs.length === 0 && text.length === 0) {
-                console.log('Full charRange structure:', JSON.stringify(charRange, (key, value) => {
-                  if (key === 'Content' && typeof value === 'string' && value.length > 20) {
-                    return value.substring(0, 20) + '...';
-                  }
-                  return value;
-                }, 2));
-              }
-
-              // Get the applied character style
-              const appliedStyle = charRange.$?.AppliedCharacterStyle ||
-                                  charRange.AppliedCharacterStyle ||
-                                  '';
-
-              // Extract content - try multiple possible properties
-              let contentText = '';
-              if (charRange.Content !== undefined) {
-                contentText = extractContent(charRange.Content);
-              } else {
-                // Try other possible text properties
-                contentText = extractContent(charRange.textContent) ||
-                             extractContent(charRange['#text']) ||
-                             extractContent(charRange.text) ||
-                             extractContent(charRange._) ||
-                             '';
-              }
-
-              // Debug: log what we're extracting
-              console.log('CharRange style:', appliedStyle, 'Content:', JSON.stringify(contentText), 'Length:', contentText.length);
-
-              // Debug: Show hex of characters around periods to identify any special characters
-              if (contentText.includes('.') && contentText.length > 20) {
-                const periodIndex = contentText.indexOf('.');
-                const context = contentText.substring(Math.max(0, periodIndex - 5), Math.min(contentText.length, periodIndex + 10));
-                console.log('  Context around first period:', JSON.stringify(context));
-                console.log('  Hex chars:', Array.from(context).map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join(' '));
-              }
-
-              // Detect common styles and add markdown - preserve EXACT original spacing
-              const styleName = appliedStyle.toLowerCase();
-
-              if (styleName.includes('italic') || styleName.includes('emphasis')) {
-                // Extract leading and trailing whitespace from original content
-                const leadingMatch = contentText.match(/^(\s*)/);
-                const trailingMatch = contentText.match(/(\s*)$/);
-                const leading = leadingMatch ? leadingMatch[1] : '';
-                const trailing = trailingMatch ? trailingMatch[1] : '';
-                const innerText = contentText.trim();
-
-                // Add markdown markers OUTSIDE the whitespace
-                markdownText += leading + '*' + innerText + '*' + trailing;
-              } else if (styleName.includes('bold') || styleName.includes('strong')) {
-                const leadingMatch = contentText.match(/^(\s*)/);
-                const trailingMatch = contentText.match(/(\s*)$/);
-                const leading = leadingMatch ? leadingMatch[1] : '';
-                const trailing = trailingMatch ? trailingMatch[1] : '';
-                const innerText = contentText.trim();
-
-                markdownText += leading + '**' + innerText + '**' + trailing;
-              } else {
-                // No special styling - keep original text exactly
-                markdownText += contentText;
-              }
-
-              text += contentText; // Plain text for comparison
-            }
-          }
-
-          // Look for direct Content
-          if (!markdownText && range.Content) {
-            markdownText = extractContent(range.Content);
-            text = markdownText;
-          }
-
-          // Add paragraph if there's any content
-          if (text && text.trim().length > 0) {
-            // Use markdown version if available
-            const finalText = markdownText || text;
-
-            // Very minimal cleanup - just normalize line endings, preserve ALL internal spacing
-            let cleanText = finalText
-              .replace(/\r\n/g, '\n')    // Normalize Windows line endings
-              .replace(/\r/g, '\n')      // Normalize old Mac line endings
-              .replace(/\u2028/g, '\n')  // Line separator to newline
-              .replace(/\u2029/g, '\n\n') // Paragraph separator to double newline
-              .trim();                   // Only trim outer edges
-
-            // Smart fix: Add missing spaces after sentence-ending punctuation
-            // This is a common IDML issue where spaces are lost during export
-            // Pattern: lowercase letter + punctuation + uppercase letter (start of new sentence)
-            cleanText = cleanText.replace(/([a-z])([.!?])([A-Z])/g, '$1$2 $3');
-
-            paragraphs.push(cleanText);
-          }
-        }
-
-        return paragraphs;
-      }
-
-    }
-
-    class MarkdownToIDMLConverter {
-      constructor(parsedData, textMappings) {
-        this.parsedData = parsedData;
-        this.textMappings = textMappings;
-      }
-
-      // Parse markdown and map it back to the original IDML structure
-      async convert(markdown) {
-        const lines = markdown.split('\n');
-        const storyUpdates = new Map(); // storySelf -> array of text updates
-        let currentStory = null;
-        let currentParagraphs = [];
-
-        for (const line of lines) {
-          if (line.startsWith('# ')) {
-            // Save previous story
-            if (currentStory && currentParagraphs.length > 0) {
-              storyUpdates.set(currentStory, currentParagraphs);
-            }
-            // Start new story
-            currentStory = line.substring(2).trim();
-            currentParagraphs = [];
-          } else if (line.trim()) {
-            // Add paragraph text
-            currentParagraphs.push(line.trim());
-          }
-        }
-
-        // Save last story
-        if (currentStory && currentParagraphs.length > 0) {
-          storyUpdates.set(currentStory, currentParagraphs);
-        }
-
-        return { storyUpdates };
-      }
-
-      // Build the updated IDML ZIP file with new text content
-      async buildIDML_zip(markdown) {
-        const { storyUpdates } = await this.convert(markdown);
-        const zip = new JSZip();
-
-        // Copy all non-story files from original IDML
-        const files = Object.keys(this.parsedData.zip.files);
-        for (const filename of files) {
-          if (filename.endsWith('/') || filename.startsWith('Stories/')) continue;
-
-          const fileData = await this.parsedData.zip.file(filename).async('arraybuffer');
-          zip.file(filename, fileData);
-        }
-
-        // Update story files with new text while preserving ALL formatting
-        for (const [storySelf, storyData] of this.parsedData.stories) {
-          const originalXML = storyData.xml;
-          const originalContent = storyData.originalContent;
-          const newParagraphs = storyUpdates.get(storySelf) || [];
-
-          if (newParagraphs.length === 0) {
-            // No changes, use original
-            const storyFile = this.parsedData.zip.file(
-              Array.from(this.parsedData.zip.file(/^Stories\/.*\.xml$/)).find(f => {
-                const self = originalXML.$?.Self || f.name;
-                return self === storySelf;
-              })?.name || `Stories/Story_${storySelf}.xml`
-            );
-            if (storyFile) {
-              const fileData = await storyFile.async('arraybuffer');
-              zip.file(storyFile.name, fileData);
-            }
-            continue;
-          }
-
-          // Parse the story structure to find all CharacterStyleRanges
-          const storyContent = originalXML.Story || originalXML['idPkg:Story'] || originalXML;
-          const paraRanges = storyContent.ParagraphStyleRange
-            ? (Array.isArray(storyContent.ParagraphStyleRange)
-                ? storyContent.ParagraphStyleRange
-                : [storyContent.ParagraphStyleRange])
-            : [];
-
-          // Build a list of all text segments in order
-          const textSegments = [];
-          for (const paraRange of paraRanges) {
-            if (paraRange.CharacterStyleRange) {
-              const charRanges = Array.isArray(paraRange.CharacterStyleRange)
-                ? paraRange.CharacterStyleRange
-                : [paraRange.CharacterStyleRange];
-
-              for (const charRange of charRanges) {
-                const content = this.extractTextFromCharRange(charRange);
-                if (content) {
-                  textSegments.push({
-                    charRange,
-                    originalText: content,
-                    style: charRange.$?.AppliedCharacterStyle || ''
-                  });
-                }
-              }
-            }
-          }
-
-          // Now map the new paragraphs back to the text segments
-          let segmentIndex = 0;
-          const newParagraphText = newParagraphs.join('\n\n');
-
-          // For now, we'll do a simple text replacement while preserving structure
-          // In a full implementation, we'd need to handle markdown parsing
-          let updatedContent = originalContent;
-          let paraIndex = 0;
-
-          // Replace each Content element with corresponding paragraph text
-          // This preserves ALL XML structure, attributes, and formatting
-          updatedContent = updatedContent.replace(
-            /(<Content[^>]*>)([^<]*)(<\/Content>)/g,
-            (match, openTag, content, closeTag) => {
-              // Only replace non-empty Content elements
-              if (content.trim() && paraIndex < newParagraphs.length) {
-                // Get the new text for this paragraph
-                const newText = newParagraphs[paraIndex];
-                paraIndex++;
-
-                // Preserve the exact same XML tags, only change the text content
-                return openTag + newText + closeTag;
-              }
-              return match;
-            }
-          );
-
-          // Find the original story filename
-          let storyFileName = null;
-          for (const [key, data] of this.parsedData.stories) {
-            if (key === storySelf) {
-              // Try to find the actual filename
-              const storyFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
-              for (const f of storyFiles) {
-                if (f.name.includes(storySelf) || f.name === `Stories/${storySelf}.xml`) {
-                  storyFileName = f.name;
-                  break;
-                }
-              }
-              break;
-            }
-          }
-
-          // Fallback: use first unused story file or generate name
-          if (!storyFileName) {
-            const usedFiles = Array.from(storyUpdates.keys()).map(s => {
-              for (const f of this.parsedData.zip.file(/^Stories\/.*\.xml$/)) {
-                if (f.name.includes(s)) return f.name;
-              }
-              return null;
-            }).filter(Boolean);
-
-            const allStoryFiles = this.parsedData.zip.file(/^Stories\/.*\.xml$/);
-            for (const f of allStoryFiles) {
-              if (!usedFiles.includes(f.name)) {
-                storyFileName = f.name;
-                break;
-              }
-            }
-          }
-
-          if (storyFileName) {
-            zip.file(storyFileName, updatedContent);
-          }
-        }
-
-        // Copy designmap.xml and other resources
-        const designmapFile = this.parsedData.zip.file('designmap.xml');
-        if (designmapFile) {
-          const designmapData = await designmapFile.async('arraybuffer');
-          zip.file('designmap.xml', designmapData);
-        }
-
-        const resourcesFiles = this.parsedData.zip.file(/^Resources\/.*\.xml$/);
-        for (const file of resourcesFiles) {
-          const fileData = await file.async('arraybuffer');
-          zip.file(file.name, fileData);
-        }
-
-        const spreadsFiles = this.parsedData.zip.file(/^Spreads\/.*\.xml$/);
-        for (const file of spreadsFiles) {
-          const fileData = await file.async('arraybuffer');
-          zip.file(file.name, fileData);
-        }
-
-        return zip;
-      }
-
-      extractTextFromCharRange(charRange) {
-        if (!charRange) return '';
-
-        // Try to get text from Content element
-        if (charRange.Content !== undefined) {
-          if (typeof charRange.Content === 'string') {
-            return charRange.Content;
-          }
-          if (Array.isArray(charRange.Content)) {
-            return charRange.Content.join('');
-          }
-          if (typeof charRange.Content === 'object' && charRange.Content._) {
-            return charRange.Content._;
-          }
-        }
-
-        // Try other text properties
-        if (charRange['#text']) return charRange['#text'];
-        if (charRange.textContent) return charRange.textContent;
-        if (charRange.text) return charRange.text;
-        if (charRange._) return charRange._;
-
-        return '';
-      }
-    }
-
-    // App State
-    let currentParsedData = null;
-    let currentTextMappings = null;
-
-    // DOM Elements
-    const uploadArea = document.getElementById('uploadArea');
-    const fileInput = document.getElementById('fileInput');
-    const uploadStatus = document.getElementById('uploadStatus');
-    const metadata = document.getElementById('metadata');
-    const markdownEditor = document.getElementById('markdownEditor');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const copyBtn = document.getElementById('copyBtn');
-    const editorStatus = document.getElementById('editorStatus');
-
-    // Upload area click
-    uploadArea.addEventListener('click', () => fileInput.click());
-
-    // File selection
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        handleFile(e.target.files[0]);
+    docEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        showToast('Line breaks not supported — text only');
       }
     });
 
-    // Drag and drop
-    uploadArea.addEventListener('dragover', (e) => {
+    docEl.addEventListener('paste', (e) => {
       e.preventDefault();
-      uploadArea.classList.add('dragover');
+      const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      if (!text) return;
+      const clean = text.replace(/\r?\n/g, ' ');
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(clean));
+      range.collapse(false);
+      sel.removeAllRanges(); sel.addRange(range);
+      onDocInput(docEl, story, sIdx);
     });
 
-    uploadArea.addEventListener('dragleave', () => {
-      uploadArea.classList.remove('dragover');
-    });
+    paper.appendChild(docEl);
+    container.appendChild(paper);
+  });
 
-    uploadArea.addEventListener('drop', (e) => {
+  updateToolbarStats();
+  renderSidebar();
+  // Auto-open sidebar on wide screens so navigation is discoverable
+  if (window.innerWidth >= 1180) {
+    document.body.classList.add('sidebar-open');
+  }
+  trackActiveStory();
+
+  // History: reset and take the baseline snapshot
+  resetHistory();
+  pushHistory(true);
+
+  // Offer to restore any autosaved draft for this filename
+  tryRestoreAutoDraft();
+}
+
+function updateParaCount(pEl) {
+  let current = 0;
+  for (const s of pEl.querySelectorAll('[data-cid]')) {
+    current += s.textContent.length;
+  }
+  const original = parseInt(pEl.getAttribute('data-orig-len') || '0', 10);
+  pEl.setAttribute('data-count', `${current}/${original}`);
+  pEl.setAttribute('data-over', current > original ? '1' : '0');
+}
+
+function updateToolbarStats() {
+  let runs = 0, chars = 0, words = 0, paras = 0;
+  for (const story of state.stories) {
+    for (const block of story.blocks) {
+      paras++;
+      for (const seg of block.segments) {
+        if (seg.kind !== 'content') continue;
+        runs++;
+        const span = document.querySelector(`[data-cid="${seg.cid}"]`);
+        const txt = span ? span.textContent : seg.original;
+        chars += txt.length;
+        words += (txt.trim().match(/\S+/g) || []).length;
+      }
+    }
+  }
+  $('#fileStats').textContent =
+    `${state.stories.length} stories · ${paras} ¶ · ${runs} runs · ${words.toLocaleString()} words · ${chars.toLocaleString()} chars`;
+}
+
+function onDocInput(docEl, story, sIdx) {
+  state.dirty = true;
+  // Toggle change highlight + update per-paragraph char counts
+  for (const block of story.blocks) {
+    for (const seg of block.segments) {
+      if (seg.kind !== 'content') continue;
+      const span = docEl.querySelector(`[data-cid="${seg.cid}"]`);
+      if (!span) continue;
+      span.classList.toggle('changed', span.textContent !== seg.original);
+    }
+  }
+  for (const pEl of docEl.querySelectorAll('.para')) updateParaCount(pEl);
+  updateToolbarStats();
+
+  // Debounced history snapshot + autosave draft
+  pushHistory();
+  scheduleAutoSave();
+
+  // Refresh search results if panel open
+  if ($('#findPanel').classList.contains('visible')) runSearch();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Sidebar / story navigation
+// ═══════════════════════════════════════════════════════════════════════════
+function storyPreview(story) {
+  for (const block of story.blocks) {
+    for (const seg of block.segments) {
+      if (seg.kind === 'content' && seg.original.trim()) {
+        const t = seg.original.trim().replace(/\s+/g, ' ');
+        return {
+          style: block.pStyleName || 'Text',
+          text: t.length > 120 ? t.slice(0, 120) + '…' : t,
+        };
+      }
+    }
+  }
+  return { style: '', text: '(empty)' };
+}
+
+function renderSidebar() {
+  const list = $('#sidebarList');
+  list.innerHTML = '';
+  state.stories.forEach((story, sIdx) => {
+    if (story.blocks.length === 0) return;
+    const { style, text } = storyPreview(story);
+    const link = document.createElement('a');
+    link.className = 'story-link';
+    link.setAttribute('data-idx', sIdx);
+    link.setAttribute('href', '#');
+    const pageBadge = story.pageRef
+      ? `<span class="page-ref">p.${story.pageRef}</span>`
+      : '';
+    link.innerHTML = `
+      <span class="num">${String(sIdx + 1).padStart(2, '0')}</span>
+      <div class="info">
+        <div>
+          ${style ? `<span class="pstyle">${escapeHtml(style)}</span>` : ''}
+          ${pageBadge}
+        </div>
+        <span class="snippet">${escapeHtml(text)}</span>
+      </div>
+    `;
+    link.addEventListener('click', (e) => {
       e.preventDefault();
-      uploadArea.classList.remove('dragover');
-
-      if (e.dataTransfer.files.length > 0) {
-        handleFile(e.dataTransfer.files[0]);
+      if (state.viewMode === 'pages') setViewMode('text');
+      const paper = document.querySelector(`.paper[data-paper-idx="${sIdx}"]`);
+      if (paper) {
+        requestAnimationFrame(() => paper.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      }
+      if (window.innerWidth < 900) {
+        document.body.classList.remove('sidebar-open');
       }
     });
+    list.appendChild(link);
+  });
+}
 
-    // Handle file upload
-    async function handleFile(file) {
-      showStatus(uploadStatus, 'info', '<span class="loading"></span> Converting...');
-      metadata.classList.add('hidden');
+function setActiveStory(idx) {
+  $$('.story-link').forEach(link => {
+    link.classList.toggle('active', link.getAttribute('data-idx') === String(idx));
+  });
+  // If user happens to be in pages view (via Cmd+P between scrolls), sync too
+  if (state.viewMode === 'pages') updatePagesActiveStory(idx);
+}
 
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const converter = new IDMLToMarkdownConverter();
-        const result = await converter.convert(arrayBuffer);
+let scrollRAF = null;
+function trackActiveStory() {
+  const papers = $$('.paper');
+  if (!papers.length) return;
+  let active = 0;
+  const threshold = window.innerHeight * 0.3;
+  for (let i = 0; i < papers.length; i++) {
+    const rect = papers[i].getBoundingClientRect();
+    if (rect.top <= threshold) active = i;
+  }
+  setActiveStory(active);
+}
 
-        currentParsedData = result.parsedData;
-        currentTextMappings = result.textMappings; // Store mappings for round-trip
-        markdownEditor.value = result.markdown;
-        markdownEditor.readOnly = false;
-        downloadBtn.disabled = false;
-        copyBtn.disabled = false;
+function toggleSidebar(force) {
+  if (typeof force === 'boolean') {
+    document.body.classList.toggle('sidebar-open', force);
+  } else {
+    document.body.classList.toggle('sidebar-open');
+  }
+}
 
-        // Show metadata
-        document.getElementById('storyCount').textContent = result.metadata.stories || 0;
-        document.getElementById('spreadCount').textContent = result.metadata.spreads || 0;
-        document.getElementById('styleCount').textContent = result.metadata.styles || 0;
-        metadata.classList.remove('hidden');
+// ═══════════════════════════════════════════════════════════════════════════
+//  Pages view (SVG layout of spreads)
+// ═══════════════════════════════════════════════════════════════════════════
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const XHTML_NS = 'http://www.w3.org/1999/xhtml';
 
-        showStatus(uploadStatus, 'success', `✓ Converted successfully! ${result.metadata.stories || 0} stories extracted.`);
-      } catch (error) {
-        console.error('Conversion error:', error);
-        showStatus(uploadStatus, 'error', '✗ Conversion failed: ' + error.message);
+function storyByParentMap() {
+  const m = new Map();
+  state.stories.forEach((s, idx) => {
+    const mat = s.path.match(/Story_(.+)\.xml$/);
+    if (mat) m.set(mat[1], idx);
+  });
+  return m;
+}
+
+// Render a story's text as simplified HTML for display inside a frame.
+// Uses live (edited) textContent if spans exist in DOM, else seg.original.
+function renderFrameContent(story) {
+  if (!story) return '';
+  const parts = [];
+  for (const block of story.blocks) {
+    parts.push('<div class="fr-p">');
+    for (const seg of block.segments) {
+      if (seg.kind === 'content') {
+        const cls = [];
+        if (seg.style.bold) cls.push('b');
+        if (seg.style.italic) cls.push('i');
+        const span = document.querySelector(`[data-cid="${seg.cid}"]`);
+        const text = span ? span.textContent : seg.original;
+        const styleAttr = seg.style.color ? ` style="color:${seg.style.color}"` : '';
+        parts.push(`<span class="${cls.join(' ')}"${styleAttr}>${escapeHtml(text)}</span>`);
+      } else if (seg.kind === 'br') {
+        parts.push('<br/>');
+      }
+    }
+    parts.push('</div>');
+  }
+  return parts.join('');
+}
+
+function renderPages() {
+  const container = $('#pages');
+  container.innerHTML = '';
+
+  const validSpreads = state.spreads.filter(s => s.worldBounds && s.pages.length);
+  if (validSpreads.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pages-empty';
+    empty.textContent = 'No page geometry found in this IDML.';
+    container.appendChild(empty);
+    return;
+  }
+
+  const storyByParent = storyByParentMap();
+
+  validSpreads.forEach((spread, idx) => {
+    const card = document.createElement('article');
+    card.className = 'spread-card';
+    card.style.animationDelay = Math.min(idx * 0.04, 0.2) + 's';
+
+    const wb = spread.worldBounds;
+    const margin = 24;
+    const vbX = wb.x1 - margin;
+    const vbY = wb.y1 - margin;
+    const vbW = (wb.x2 - wb.x1) + margin * 2;
+    const vbH = (wb.y2 - wb.y1) + margin * 2;
+
+    const framesWithStory = spread.frames.filter(f =>
+      f.parentStory && storyByParent.has(f.parentStory));
+
+    const lastPage = spread.firstPage + spread.pages.length - 1;
+    const pageRange = spread.pages.length === 1
+      ? `Page ${spread.firstPage}`
+      : `Pages ${spread.firstPage}–${lastPage}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'spread-meta';
+    meta.innerHTML = `
+      <span>${spread.pages.length === 1 ? 'Single page' : 'Spread'}</span>
+      <span class="pages">${pageRange}</span>
+      <span>${framesWithStory.length} text frame${framesWithStory.length === 1 ? '' : 's'}</span>
+    `;
+    card.appendChild(meta);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'spread-svg-wrap';
+
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('class', 'spread-svg');
+    const maxDisplayWidth = 960;
+    const scale = Math.min(1, maxDisplayWidth / vbW);
+    svg.setAttribute('width', Math.round(vbW * scale));
+    svg.setAttribute('height', Math.round(vbH * scale));
+
+    // Pages — white rectangles with page-number labels
+    for (const page of spread.pages) {
+      const pb = page.worldBounds;
+      const r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('x', pb.x1); r.setAttribute('y', pb.y1);
+      r.setAttribute('width', pb.x2 - pb.x1);
+      r.setAttribute('height', pb.y2 - pb.y1);
+      r.setAttribute('class', 'page-rect');
+      svg.appendChild(r);
+
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('x', pb.x1 + 8);
+      label.setAttribute('y', pb.y2 - 8);
+      label.setAttribute('class', 'page-num-label');
+      label.textContent = 'p. ' + page.pageNumber;
+      svg.appendChild(label);
+    }
+
+    // Frames — rectangle + foreignObject with text
+    for (const frame of spread.frames) {
+      const storyIdx = storyByParent.get(frame.parentStory);
+      const story = (storyIdx !== undefined) ? state.stories[storyIdx] : null;
+      const fb = frame.worldBounds;
+
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('class', 'frame');
+      if (storyIdx !== undefined) g.setAttribute('data-story-idx', storyIdx);
+
+      const fr = document.createElementNS(SVG_NS, 'rect');
+      fr.setAttribute('x', fb.x1); fr.setAttribute('y', fb.y1);
+      fr.setAttribute('width', fb.x2 - fb.x1);
+      fr.setAttribute('height', fb.y2 - fb.y1);
+      fr.setAttribute('class', 'frame-rect');
+      g.appendChild(fr);
+
+      if (story) {
+        const fo = document.createElementNS(SVG_NS, 'foreignObject');
+        fo.setAttribute('x', fb.x1);
+        fo.setAttribute('y', fb.y1);
+        fo.setAttribute('width', fb.x2 - fb.x1);
+        fo.setAttribute('height', fb.y2 - fb.y1);
+        const div = document.createElementNS(XHTML_NS, 'div');
+        div.setAttribute('class', 'frame-text');
+        div.innerHTML = renderFrameContent(story);
+        fo.appendChild(div);
+        g.appendChild(fo);
+      }
+
+      // Story number badge (above the frame)
+      if (storyIdx !== undefined) {
+        const num = document.createElementNS(SVG_NS, 'text');
+        num.setAttribute('x', fb.x1);
+        num.setAttribute('y', fb.y1 - 4);
+        num.setAttribute('class', 'frame-num');
+        num.textContent = String(storyIdx + 1).padStart(2, '0');
+        g.appendChild(num);
+
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => jumpToStory(storyIdx));
+      }
+
+      svg.appendChild(g);
+    }
+
+    wrap.appendChild(svg);
+    card.appendChild(wrap);
+    container.appendChild(card);
+  });
+}
+
+function jumpToStory(storyIdx) {
+  setViewMode('text');
+  // Wait a tick for the text view to become visible before scrolling
+  requestAnimationFrame(() => {
+    const paper = document.querySelector(`.paper[data-paper-idx="${storyIdx}"]`);
+    if (!paper) return;
+    paper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Brief flash so the user sees where they landed
+    paper.classList.remove('flash-target');
+    // Force reflow before re-adding to restart the animation
+    void paper.offsetWidth;
+    paper.classList.add('flash-target');
+    setTimeout(() => paper.classList.remove('flash-target'), 1400);
+  });
+}
+
+// Highlight frames in the pages view whose parent story matches the given index
+function updatePagesActiveStory(storyIdx) {
+  if (state.viewMode !== 'pages') return;
+  const sByP = storyByParentMap();
+  // Find the ParentStory id for this story idx
+  let activeParent = null;
+  for (const [parent, idx] of sByP) {
+    if (idx === storyIdx) { activeParent = parent; break; }
+  }
+  // Update each frame's active state
+  for (const card of $$('.spread-card')) {
+    let cardHasActive = false;
+    for (const g of card.querySelectorAll('.spread-svg g.frame')) {
+      const gIdx = g.getAttribute('data-story-idx');
+      const match = gIdx !== null && parseInt(gIdx, 10) === storyIdx;
+      g.classList.toggle('active', match);
+      if (match) cardHasActive = true;
+    }
+    card.classList.toggle('has-active', cardHasActive);
+  }
+}
+
+function setViewMode(mode) {
+  if (mode !== 'text' && mode !== 'pages') return;
+  state.viewMode = mode;
+  $('#stories').classList.toggle('hidden', mode !== 'text');
+  $('#pages').classList.toggle('hidden', mode !== 'pages');
+  const btn = $('#viewToggle');
+  if (btn) btn.textContent = mode === 'text' ? 'Pages' : 'Text';
+  if (mode === 'pages') {
+    renderPages();
+    // Apply active-story highlight based on whichever story was active in the sidebar
+    const activeLink = document.querySelector('.story-link.active');
+    if (activeLink) {
+      const idx = parseInt(activeLink.getAttribute('data-idx'), 10);
+      if (!isNaN(idx)) updatePagesActiveStory(idx);
+    }
+  }
+  // Sidebar + active-story highlight is text-view only; don't re-track in pages
+  if (mode === 'text') trackActiveStory();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Undo / Redo — snapshot-based across the whole document
+// ═══════════════════════════════════════════════════════════════════════════
+function takeSnapshot() {
+  const snap = {};
+  for (const story of state.stories) {
+    for (const block of story.blocks) {
+      for (const seg of block.segments) {
+        if (seg.kind !== 'content') continue;
+        const span = document.querySelector(`[data-cid="${seg.cid}"]`);
+        snap[seg.stableKey] = span ? span.textContent : seg.original;
+      }
+    }
+  }
+  return snap;
+}
+
+function snapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+// Commit a snapshot (drops anything past current pointer, caps history length).
+function commitSnapshot() {
+  const snap = takeSnapshot();
+  const last = state.history[state.historyIdx];
+  if (snapshotsEqual(last, snap)) return;
+  if (state.historyIdx < state.history.length - 1) {
+    state.history.length = state.historyIdx + 1;
+  }
+  state.history.push(snap);
+  if (state.history.length > state.HISTORY_MAX) {
+    state.history.shift();
+  } else {
+    state.historyIdx++;
+  }
+}
+
+// Debounced commit for rapid typing; immediate for atomic ops (AI, replace).
+function pushHistory(immediate = false) {
+  clearTimeout(historyTimer);
+  if (immediate) {
+    commitSnapshot();
+  } else {
+    historyTimer = setTimeout(() => { commitSnapshot(); historyTimer = null; }, 500);
+  }
+}
+
+function applySnapshot(snap) {
+  state.stories.forEach((story, sIdx) => {
+    const docEl = document.querySelector(`.doc[data-story-idx="${sIdx}"]`);
+    if (!docEl) return;
+    for (const block of story.blocks) {
+      for (const seg of block.segments) {
+        if (seg.kind !== 'content') continue;
+        const newText = snap[seg.stableKey];
+        if (newText === undefined) continue;
+        const span = docEl.querySelector(`[data-cid="${seg.cid}"]`);
+        if (span && span.textContent !== newText) {
+          span.textContent = newText;
+        }
+        if (span) span.classList.toggle('changed', newText !== seg.original);
+      }
+    }
+    for (const pEl of docEl.querySelectorAll('.para')) updateParaCount(pEl);
+  });
+  updateToolbarStats();
+  state.dirty = true;
+  scheduleAutoSave();
+}
+
+function undo() {
+  // Flush any pending snapshot so the undo step is well-defined
+  if (historyTimer) { clearTimeout(historyTimer); historyTimer = null; commitSnapshot(); }
+  if (state.historyIdx <= 0) { showToast('Nothing to undo'); return; }
+  state.historyIdx--;
+  applySnapshot(state.history[state.historyIdx]);
+  showToast(`Undo · ${state.historyIdx + 1}/${state.history.length}`);
+}
+
+function redo() {
+  if (historyTimer) { clearTimeout(historyTimer); historyTimer = null; commitSnapshot(); }
+  if (state.historyIdx >= state.history.length - 1) { showToast('Nothing to redo'); return; }
+  state.historyIdx++;
+  applySnapshot(state.history[state.historyIdx]);
+  showToast(`Redo · ${state.historyIdx + 1}/${state.history.length}`);
+}
+
+function resetHistory() {
+  state.history = [];
+  state.historyIdx = -1;
+  clearTimeout(historyTimer);
+  historyTimer = null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Auto-save — localStorage draft of unsaved edits
+// ═══════════════════════════════════════════════════════════════════════════
+function autoSaveKey() {
+  return 'idml-draft:' + state.originalName + ':' + state.fileSize;
+}
+
+function writeAutoDraft() {
+  try {
+    const draft = {};
+    let count = 0;
+    for (const story of state.stories) {
+      for (const block of story.blocks) {
+        for (const seg of block.segments) {
+          if (seg.kind !== 'content') continue;
+          const span = document.querySelector(`[data-cid="${seg.cid}"]`);
+          if (span && span.textContent !== seg.original) {
+            draft[seg.stableKey] = span.textContent;
+            count++;
+          }
+        }
+      }
+    }
+    if (count === 0) {
+      localStorage.removeItem(autoSaveKey());
+    } else {
+      localStorage.setItem(autoSaveKey(), JSON.stringify({
+        name: state.originalName, ts: Date.now(), count, draft,
+      }));
+    }
+  } catch (e) { /* quota exceeded, private mode, etc. — non-fatal */ }
+}
+
+function scheduleAutoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(writeAutoDraft, 1500);
+}
+
+function clearAutoDraft() {
+  try { localStorage.removeItem(autoSaveKey()); } catch (e) {}
+}
+
+function tryRestoreAutoDraft() {
+  let raw;
+  try { raw = localStorage.getItem(autoSaveKey()); } catch (e) { return; }
+  if (!raw) return;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { return; }
+  const { draft, ts, count } = parsed || {};
+  if (!draft || !count) return;
+
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
+  const ago = mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)}h ago`;
+  const ok = confirm(
+    `Unsaved draft found for "${state.originalName}.idml" from ${ago}:\n` +
+    `${count} edit${count === 1 ? '' : 's'} not yet exported.\n\n` +
+    `Restore these edits?`
+  );
+  if (!ok) { clearAutoDraft(); return; }
+
+  let applied = 0;
+  for (const story of state.stories) {
+    for (const block of story.blocks) {
+      for (const seg of block.segments) {
+        if (seg.kind !== 'content') continue;
+        const newText = draft[seg.stableKey];
+        if (newText === undefined) continue;
+        const span = document.querySelector(`[data-cid="${seg.cid}"]`);
+        if (span) {
+          span.textContent = newText;
+          span.classList.toggle('changed', newText !== seg.original);
+          applied++;
+        }
+      }
+    }
+  }
+  for (const pEl of $$('.doc .para')) updateParaCount(pEl);
+  updateToolbarStats();
+  state.dirty = true;
+  pushHistory(true);
+  showToast(`Restored ${applied} draft edit${applied === 1 ? '' : 's'}`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Theme cycling
+// ═══════════════════════════════════════════════════════════════════════════
+const THEMES = [
+  { cls: '',              label: 'Editorial' },
+  { cls: 'theme-dark',    label: 'Dark' },
+  { cls: 'theme-minimal', label: 'Minimal' },
+];
+let themeIdx = 0;
+
+function applyTheme(idx) {
+  themeIdx = ((idx % THEMES.length) + THEMES.length) % THEMES.length;
+  for (const t of THEMES) if (t.cls) document.body.classList.remove(t.cls);
+  const theme = THEMES[themeIdx];
+  if (theme.cls) document.body.classList.add(theme.cls);
+  try { localStorage.setItem('idml-theme', String(themeIdx)); } catch (e) {}
+}
+
+function cycleTheme() {
+  applyTheme(themeIdx + 1);
+  showToast('Theme: ' + THEMES[themeIdx].label);
+}
+
+// Restore theme preference immediately (so first paint is right)
+try {
+  const saved = parseInt(localStorage.getItem('idml-theme') || '0', 10);
+  if (!isNaN(saved)) applyTheme(saved);
+} catch (e) {}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Find & Replace (using CSS Custom Highlight API when available)
+// ═══════════════════════════════════════════════════════════════════════════
+function ensureHighlights() {
+  if (!('highlights' in CSS) || typeof Highlight === 'undefined') return false;
+  if (!search.hitH) {
+    search.hitH = new Highlight();
+    search.curH = new Highlight();
+    CSS.highlights.set('find-hit', search.hitH);
+    CSS.highlights.set('find-current', search.curH);
+  }
+  return true;
+}
+
+function clearHighlights() {
+  if (search.hitH) search.hitH.clear();
+  if (search.curH) search.curH.clear();
+}
+
+function openFind() {
+  if (state.viewMode === 'pages') setViewMode('text');
+  $('#findPanel').classList.add('visible');
+  $('#findInput').focus();
+  $('#findInput').select();
+  runSearch();
+}
+
+function closeFind() {
+  $('#findPanel').classList.remove('visible');
+  clearHighlights();
+  search.query = '';
+  search.matches = [];
+  search.currentIdx = -1;
+}
+
+function runSearch() {
+  const q = $('#findInput').value;
+  search.query = q;
+  search.caseSensitive = $('#caseOpt').checked;
+  search.wholeWord = $('#wholeOpt').checked;
+
+  clearHighlights();
+  search.matches = [];
+  search.currentIdx = -1;
+
+  if (!q) { $('#findCount').textContent = '—'; return; }
+  if (!ensureHighlights()) {
+    $('#findCount').textContent = 'unsupported';
+    return;
+  }
+
+  const flags = search.caseSensitive ? 'g' : 'gi';
+  let pattern;
+  try {
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    pattern = new RegExp(search.wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+  } catch (e) { return; }
+
+  // Iterate spans in DOM order so prev/next feels right
+  const spans = $$('.doc span[data-cid]');
+  for (const span of spans) {
+    span.normalize();
+    const textNode = span.firstChild;
+    if (!textNode || textNode.nodeType !== 3) continue;
+    const text = textNode.data;
+    let m;
+    pattern.lastIndex = 0;
+    while ((m = pattern.exec(text)) !== null) {
+      if (m[0].length === 0) { pattern.lastIndex++; continue; }
+      const r = new Range();
+      r.setStart(textNode, m.index);
+      r.setEnd(textNode, m.index + m[0].length);
+      search.matches.push({ span, textNode, start: m.index, end: m.index + m[0].length, range: r });
+      search.hitH.add(r);
+    }
+  }
+
+  if (search.matches.length > 0) {
+    search.currentIdx = 0;
+    highlightCurrent(true);
+  }
+  updateFindCount();
+}
+
+function updateFindCount() {
+  const n = search.matches.length;
+  if (n === 0) {
+    $('#findCount').textContent = search.query ? 'no matches' : '—';
+  } else {
+    $('#findCount').textContent = `${search.currentIdx + 1} / ${n}`;
+  }
+}
+
+function highlightCurrent(scroll) {
+  if (!search.curH || search.currentIdx < 0) return;
+  search.curH.clear();
+  const m = search.matches[search.currentIdx];
+  if (!m) return;
+  // remove from hitH so it doesn't double-render
+  try { search.hitH.delete(m.range); } catch(e) {}
+  search.curH.add(m.range);
+  if (scroll) {
+    m.span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function nextMatch(dir) {
+  if (search.matches.length === 0) return;
+  // Put the previous current back into hitH
+  const prev = search.matches[search.currentIdx];
+  if (prev) { search.hitH.add(prev.range); }
+  search.currentIdx = (search.currentIdx + dir + search.matches.length) % search.matches.length;
+  highlightCurrent(true);
+  updateFindCount();
+}
+
+function replaceOne() {
+  if (search.matches.length === 0 || search.currentIdx < 0) return;
+  const replacement = $('#replaceInput').value;
+  const m = search.matches[search.currentIdx];
+  const span = m.span;
+  const before = span.textContent.slice(0, m.start);
+  const after  = span.textContent.slice(m.end);
+  span.textContent = before + replacement + after;
+
+  // Mark as changed, update state
+  const story = findStoryBySpan(span);
+  if (story) onDocInput(story.docEl, story.story, story.sIdx);
+  pushHistory(true);
+
+  // Rerun search — offsets have shifted
+  runSearch();
+  // Move to the next (current position of replacement)
+  if (search.matches.length > 0) highlightCurrent(true);
+}
+
+function replaceAll() {
+  if (!search.query) return;
+  const replacement = $('#replaceInput').value;
+  const flags = search.caseSensitive ? 'g' : 'gi';
+  let pattern;
+  try {
+    const escaped = search.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    pattern = new RegExp(search.wholeWord ? `\\b${escaped}\\b` : escaped, flags);
+  } catch (e) { return; }
+
+  let count = 0;
+  const touchedStories = new Set();
+  for (const span of $$('.doc span[data-cid]')) {
+    const before = span.textContent;
+    const after = before.replace(pattern, (m) => { count++; return replacement; });
+    if (before !== after) {
+      span.textContent = after;
+      const sIdx = span.closest('.doc').getAttribute('data-story-idx');
+      touchedStories.add(sIdx);
+    }
+  }
+  // Sync every touched story
+  for (const sIdx of touchedStories) {
+    const docEl = document.querySelector(`.doc[data-story-idx="${sIdx}"]`);
+    if (docEl) onDocInput(docEl, state.stories[sIdx], parseInt(sIdx));
+  }
+  showToast(`Replaced ${count} match${count === 1 ? '' : 'es'}`);
+  pushHistory(true);
+  runSearch();
+}
+
+function findStoryBySpan(span) {
+  const docEl = span.closest('.doc');
+  if (!docEl) return null;
+  const sIdx = parseInt(docEl.getAttribute('data-story-idx'), 10);
+  return { docEl, story: state.stories[sIdx], sIdx };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AI rewrite bubble
+// ═══════════════════════════════════════════════════════════════════════════
+let lastSelectionRange = null;
+
+const AI_ACTIONS = {
+  shorten: 'Rewrite the following text to be more concise, preserving its meaning and tone. Keep it in the same language.',
+  polish:  'Rewrite the following text to be clearer, smoother, and better-phrased. Keep the meaning, tone, and language identical.',
+};
+
+function updateBubblePosition() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideBubble(); return; }
+  const range = sel.getRangeAt(0);
+  // Must be inside a .doc
+  const anchor = range.commonAncestorContainer;
+  const el = (anchor.nodeType === 1 ? anchor : anchor.parentElement)?.closest?.('.doc');
+  if (!el) { hideBubble(); return; }
+  if (!range.toString().trim()) { hideBubble(); return; }
+  lastSelectionRange = range.cloneRange();
+
+  const rect = range.getBoundingClientRect();
+  const bubble = $('#aiBubble');
+  bubble.classList.add('visible');
+  // Measure after showing
+  const bw = bubble.offsetWidth;
+  const bh = bubble.offsetHeight;
+  const top = window.scrollY + rect.top - bh - 10;
+  const left = Math.max(12 + bw/2, Math.min(
+    window.innerWidth - 12 - bw/2,
+    rect.left + rect.width/2
+  ));
+  bubble.style.top = top + 'px';
+  bubble.style.left = left + 'px';
+}
+
+function hideBubble() {
+  $('#aiBubble').classList.remove('visible');
+  $('#aiCustom').classList.remove('visible');
+}
+
+async function runAi(instruction) {
+  if (!lastSelectionRange) return;
+  const selectedText = lastSelectionRange.toString();
+  if (!selectedText.trim()) return;
+
+  // Ensure the range endpoints are inside the same span (for clean replace).
+  // If not, we'll still replace but textContent may merge into one span.
+  const bubble = $('#aiBubble');
+  bubble.classList.add('loading');
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: `${instruction}\n\nReturn ONLY the rewritten text with no preamble, no quotes, no explanation.\n\nText:\n${selectedText}`
+        }],
+      }),
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const data = await res.json();
+    const out = (data.content || [])
+      .filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    if (!out) throw new Error('Empty response');
+
+    // Re-select the original range (selection may have changed due to focus)
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(lastSelectionRange);
+
+    // Replace the selection. To keep styling: insert into first span.
+    const startSpan = (lastSelectionRange.startContainer.nodeType === 1
+      ? lastSelectionRange.startContainer
+      : lastSelectionRange.startContainer.parentElement)?.closest('[data-cid]');
+
+    lastSelectionRange.deleteContents();
+    const textNode = document.createTextNode(out);
+    lastSelectionRange.insertNode(textNode);
+
+    // If there's now a bare text node outside any span, wrap it into the start span
+    if (startSpan && textNode.parentNode !== startSpan) {
+      startSpan.appendChild(textNode);
+    }
+
+    // Trigger sync
+    const docEl = textNode.parentElement.closest('.doc');
+    if (docEl) {
+      const sIdx = parseInt(docEl.getAttribute('data-story-idx'), 10);
+      onDocInput(docEl, state.stories[sIdx], sIdx);
+    }
+
+    // Move cursor to end of insertion
+    const newRange = document.createRange();
+    newRange.setStart(textNode, textNode.length);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+
+    hideBubble();
+    showToast('Rewritten ✓');
+    pushHistory(true);
+  } catch (err) {
+    console.error(err);
+    showToast('AI request failed — ' + err.message, true);
+  } finally {
+    bubble.classList.remove('loading');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Save IDML  +  validation
+// ═══════════════════════════════════════════════════════════════════════════
+async function saveIdml() {
+  if (!state.zip) return;
+  const btn = $('#saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Packaging…';
+
+  try {
+    // 1) Sync DOM → XML for each story
+    const dirtyStoryPaths = [];
+    for (let sIdx = 0; sIdx < state.stories.length; sIdx++) {
+      const story = state.stories[sIdx];
+      const docEl = document.querySelector(`.doc[data-story-idx="${sIdx}"]`);
+      if (!docEl) continue;
+
+      let dirty = false;
+      for (const block of story.blocks) {
+        for (const seg of block.segments) {
+          if (seg.kind !== 'content') continue;
+          const span = docEl.querySelector(`[data-cid="${seg.cid}"]`);
+          const nowText = span ? span.textContent : '';
+          if (nowText !== seg.node.textContent) {
+            seg.node.textContent = nowText;
+            dirty = true;
+          }
+        }
+      }
+
+      if (dirty) {
+        const serialized = new XMLSerializer().serializeToString(story.doc);
+        const finalXml = story.declaration + '\n' + serialized;
+
+        // Validation: re-parse before we commit it
+        const reparsed = new DOMParser().parseFromString(finalXml, 'text/xml');
+        if (reparsed.getElementsByTagName('parsererror').length) {
+          throw new Error(`Produced invalid XML for ${story.path}`);
+        }
+
+        state.zip.file(story.path, finalXml);
+        dirtyStoryPaths.push(story.path);
       }
     }
 
-    // Download converted IDML
-    downloadBtn.addEventListener('click', async () => {
-      if (!currentParsedData) return;
+    // 2) Rebuild zip — mimetype FIRST and uncompressed
+    const newZip = new JSZip();
+    const mimetypeText = await state.zip.file('mimetype').async('text');
+    newZip.file('mimetype', mimetypeText, { compression: 'STORE' });
 
-      showStatus(editorStatus, 'info', '<span class="loading"></span> Preparing download...');
-
-      try {
-        // Use the improved MarkdownToIDMLConverter that preserves all formatting
-        const converter = new MarkdownToIDMLConverter(currentParsedData, currentTextMappings);
-        const zip = await converter.buildIDML_zip(markdownEditor.value);
-
-        // Generate the ZIP file
-        const blob = await zip.generateAsync({ type: 'blob' });
-
-        // Download
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `converted_${Date.now()}.idml`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        showStatus(editorStatus, 'success', '✓ IDML file downloaded! Open it in InDesign to see your changes.');
-      } catch (error) {
-        console.error('Download error:', error);
-        showStatus(editorStatus, 'error', '✗ Download failed: ' + error.message);
-      }
-    });
-
-    // Copy markdown to clipboard
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(markdownEditor.value);
-        copyBtn.textContent = '✓ Copied!';
-        setTimeout(() => {
-          copyBtn.textContent = '📋 Copy Markdown';
-        }, 2000);
-      } catch (error) {
-        showStatus(editorStatus, 'error', '✗ Failed to copy');
-      }
-    });
-
-    // Show status message
-    function showStatus(element, type, message) {
-      element.className = 'status ' + type;
-      element.innerHTML = message;
-      element.classList.remove('hidden');
+    for (const path of Object.keys(state.zip.files)) {
+      if (path === 'mimetype') continue;
+      const entry = state.zip.files[path];
+      if (entry.dir) { newZip.folder(path); continue; }
+      const data = await entry.async('uint8array');
+      newZip.file(path, data, {
+        date: entry.date, comment: entry.comment,
+        unixPermissions: entry.unixPermissions,
+        dosPermissions: entry.dosPermissions,
+      });
     }
-  </script>
+
+    const blob = await newZip.generateAsync({
+      type: 'blob',
+      mimeType: 'application/vnd.adobe.indesign-idml-package',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+
+    // Final-pass validation: try to reload what we just built
+    try {
+      const verify = await JSZip.loadAsync(blob);
+      if (!verify.file('mimetype')) throw new Error('mimetype missing');
+      for (const p of dirtyStoryPaths) {
+        const raw = await verify.file(p).async('text');
+        const clean = raw.replace(/^\uFEFF/, '');
+        const d = new DOMParser().parseFromString(clean, 'text/xml');
+        if (d.getElementsByTagName('parsererror').length) {
+          throw new Error(`Output ${p} fails XML validation`);
+        }
+      }
+    } catch (vErr) {
+      throw new Error('Output validation failed: ' + vErr.message);
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = state.originalName + '-edited.idml';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    // Reset originals + clear change highlights
+    for (const story of state.stories) {
+      for (const block of story.blocks) {
+        for (const seg of block.segments) {
+          if (seg.kind === 'content') seg.original = seg.node.textContent;
+        }
+      }
+    }
+    for (const pEl of $$('.doc .para')) {
+      pEl.setAttribute('data-orig-len', pEl.textContent.length);
+      updateParaCount(pEl);
+    }
+    $$('.doc span[data-cid].changed').forEach(el => el.classList.remove('changed'));
+    state.dirty = false;
+    clearAutoDraft();
+
+    showToast('Saved & validated ✓');
+  } catch (err) {
+    console.error(err);
+    showToast('Save failed — ' + err.message, true, 4000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save .idml';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Wire up
+// ═══════════════════════════════════════════════════════════════════════════
+setTodayDate();
+
+const drop = $('#drop');
+const fileInput = $('#fileInput');
+
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragging'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('dragging');
+  const f = e.dataTransfer.files?.[0]; if (f) loadIdml(f);
+});
+fileInput.addEventListener('change', e => { const f = e.target.files?.[0]; if (f) loadIdml(f); });
+
+$('#resetBtn').addEventListener('click', () => {
+  if (state.dirty && !confirm('Discard unsaved edits and load a new file?')) return;
+  if (!state.dirty && !confirm('Load a different file?')) return;
+  state.zip = null; state.stories = []; state.spreads = [];
+  state.originalName = ''; state.fileSize = 0;
+  state.dirty = false;
+  state.viewMode = 'text';
+  resetHistory();
+  clearTimeout(autoSaveTimer);
+  fileInput.value = '';
+  $('#editorSection').classList.add('hidden');
+  $('#dropSection').classList.remove('hidden');
+  $('#toolbarWrap').classList.add('hidden');
+  $('#sidebarList').innerHTML = '';
+  $('#pages').innerHTML = '';
+  $('#pages').classList.add('hidden');
+  $('#stories').classList.remove('hidden');
+  document.body.classList.remove('sidebar-open');
+  closeFind();
+});
+
+$('#saveBtn').addEventListener('click', saveIdml);
+
+// Sidebar wiring
+$('#sidebarToggle').addEventListener('click', () => toggleSidebar());
+$('#sidebarClose').addEventListener('click', () => toggleSidebar(false));
+$('#sidebarBackdrop').addEventListener('click', () => toggleSidebar(false));
+
+window.addEventListener('scroll', () => {
+  if (scrollRAF) return;
+  scrollRAF = requestAnimationFrame(() => {
+    trackActiveStory();
+    scrollRAF = null;
+  });
+}, { passive: true });
+
+// Find & Replace wiring
+$('#findBtn').addEventListener('click', openFind);
+$('#findClose').addEventListener('click', closeFind);
+$('#findInput').addEventListener('input', runSearch);
+$('#caseOpt').addEventListener('change', runSearch);
+$('#wholeOpt').addEventListener('change', runSearch);
+$('#prevBtn').addEventListener('click', () => nextMatch(-1));
+$('#nextBtn').addEventListener('click', () => nextMatch(1));
+$('#replaceOneBtn').addEventListener('click', replaceOne);
+$('#replaceAllBtn').addEventListener('click', replaceAll);
+$('#findInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); nextMatch(e.shiftKey ? -1 : 1); }
+  if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+$('#replaceInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); replaceOne(); }
+  if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+
+// AI bubble wiring
+document.addEventListener('selectionchange', () => {
+  // debounce slightly
+  clearTimeout(updateBubblePosition._t);
+  updateBubblePosition._t = setTimeout(updateBubblePosition, 60);
+});
+window.addEventListener('scroll', () => {
+  if ($('#aiBubble').classList.contains('visible')) updateBubblePosition();
+});
+$('#aiBubble').querySelectorAll('button[data-action]').forEach(b => {
+  b.addEventListener('click', (e) => {
+    e.preventDefault();
+    const action = b.getAttribute('data-action');
+    runAi(AI_ACTIONS[action]);
+  });
+});
+$('#aiTranslate').addEventListener('change', (e) => {
+  const lang = e.target.value;
+  if (!lang) return;
+  runAi(`Translate the following text to ${lang}. Preserve tone and meaning exactly. Return only the translation.`);
+  e.target.value = '';
+});
+$('#aiCustomBtn').addEventListener('click', (e) => {
+  e.preventDefault();
+  const bubble = $('#aiBubble');
+  const custom = $('#aiCustom');
+  const rect = bubble.getBoundingClientRect();
+  custom.style.top = (window.scrollY + rect.bottom + 6) + 'px';
+  custom.style.left = (rect.left + rect.width / 2) + 'px';
+  custom.classList.add('visible');
+  $('#aiPromptInput').focus();
+  $('#aiPromptInput').value = '';
+});
+$('#aiPromptInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { $('#aiCustom').classList.remove('visible'); return; }
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const prompt = $('#aiPromptInput').value.trim();
+  if (!prompt) return;
+  $('#aiCustom').classList.remove('visible');
+  const instruction = `Rewrite the following text according to this instruction: "${prompt}". Preserve the language unless the instruction says otherwise. Return only the rewritten text.`;
+  runAi(instruction);
+});
+
+// Hide bubble when clicking outside docs
+document.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.ai-bubble') || e.target.closest('.ai-custom')) return;
+  if (!e.target.closest('.doc')) hideBubble();
+});
+
+// Theme button
+$('#themeBtn').addEventListener('click', cycleTheme);
+
+// View toggle (text ⇄ pages)
+$('#viewToggle').addEventListener('click', () => {
+  setViewMode(state.viewMode === 'text' ? 'pages' : 'text');
+});
+
+// Global keyboard shortcuts
+document.addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key === 's') {
+    e.preventDefault();
+    if (state.zip) saveIdml();
+    return;
+  }
+  if (mod && e.key === 'f') {
+    if (!state.zip) return;
+    e.preventDefault();
+    openFind();
+    return;
+  }
+  if (mod && e.key === '\\') {
+    if (!state.zip) return;
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
+  if (mod && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    cycleTheme();
+    return;
+  }
+  if (mod && (e.key === 'p' || e.key === 'P')) {
+    if (!state.zip) return;
+    e.preventDefault();
+    setViewMode(state.viewMode === 'text' ? 'pages' : 'text');
+    return;
+  }
+  // Undo / redo (works both inside contenteditable and outside)
+  if (mod && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+    if (!state.zip) return;
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if (mod && ((e.shiftKey && (e.key === 'z' || e.key === 'Z')) || e.key === 'y' || e.key === 'Y')) {
+    if (!state.zip) return;
+    e.preventDefault();
+    redo();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if ($('#findPanel').classList.contains('visible')) closeFind();
+    hideBubble();
+  }
+});
+
+// Unsaved changes warning
+window.addEventListener('beforeunload', (e) => {
+  if (state.dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+</script>
+
 </body>
 </html>
